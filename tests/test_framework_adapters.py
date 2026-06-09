@@ -19,8 +19,8 @@ def test_langgraph_adapter_import_guard():
     saved = sys.modules.get("langgraph")
     sys.modules["langgraph"] = None  # type: ignore[assignment]
     try:
-        if "gzl.adapters.langgraph_adapter" in sys.modules:
-            importlib.reload(sys.modules["gzl.adapters.langgraph_adapter"])
+        if "gazelle.adapters.langgraph_adapter" in sys.modules:
+            importlib.reload(sys.modules["gazelle.adapters.langgraph_adapter"])
         from gazelle.adapters.langgraph_adapter import LangGraphAgent
 
         with pytest.raises(ImportError, match="langgraph"):
@@ -39,8 +39,8 @@ def test_crewai_adapter_import_guard():
     saved = sys.modules.get("crewai")
     sys.modules["crewai"] = None  # type: ignore[assignment]
     try:
-        if "gzl.adapters.crewai_adapter" in sys.modules:
-            importlib.reload(sys.modules["gzl.adapters.crewai_adapter"])
+        if "gazelle.adapters.crewai_adapter" in sys.modules:
+            importlib.reload(sys.modules["gazelle.adapters.crewai_adapter"])
         from gazelle.adapters.crewai_adapter import CrewAIAgent
 
         with pytest.raises(ImportError, match="crewai"):

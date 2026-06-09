@@ -16,7 +16,7 @@ The surface area users actually touch. Goal: a developer can be productive in 5 
 ## Public Python API
 
 ```python
-# gzl/__init__.py
+# gazelle/__init__.py
 from gazelle.runtime import Runtime, runtime         # global singleton + class
 from gazelle.decorators import tool, shadow
 from gazelle.policy import deny, allow, dry_run, approve_required, transform, rule
@@ -161,13 +161,13 @@ class SimpleAgent:
         return FinalAnswer(text=response.content)
 ```
 
-Adapters for LangGraph, CrewAI, OpenAI Agents SDK live in `gzl/adapters/` and conform to the same `Agent` protocol.
+Adapters for LangGraph, CrewAI, OpenAI Agents SDK live in `gazelle/adapters/` and conform to the same `Agent` protocol.
 
 ---
 
 ## CLI
 
-Installed as `gzl` on PATH.
+Installed as `gazelle` on PATH.
 
 ### Project setup
 
@@ -210,9 +210,9 @@ gazelle deny <request-id> [--reason ...]
 ### Replay
 
 ```
-gzl replay <run-id>             # re-run from scratch
-gzl replay <run-id> --from-step 8 --edit args.cmd='ls'
-gzl replay <run-id> --inspect   # no execution, just walk
+gazelle replay <run-id>             # re-run from scratch
+gazelle replay <run-id> --from-step 8 --edit args.cmd='ls'
+gazelle replay <run-id> --inspect   # no execution, just walk
 ```
 
 ### Policy
@@ -228,8 +228,8 @@ gazelle policy bundle-id [policy.yaml]   # prints the content-addressed ID
 
 ```
 gazelle version
-gzl config              # effective config (env vars overlaid on toml)
-gzl db migrate          # apply schema migrations
+gazelle config              # effective config (env vars overlaid on toml)
+gazelle db migrate          # apply schema migrations
 ```
 
 ---

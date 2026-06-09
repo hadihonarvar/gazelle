@@ -36,7 +36,7 @@ How much overhead does Gazelle add to an agent? Two benchmarks, both runnable in
 
 ```
        naked          3.20ms        0.064ms/step
-         gzl        160.50ms        3.210ms/step
+         gazelle    160.50ms        3.210ms/step
     overhead                        3.146ms/step
 ```
 

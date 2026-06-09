@@ -12,7 +12,7 @@ Usage::
     from gazelle.stores.postgres import PostgresStore
     from gazelle.runtime import Runtime
 
-    store = PostgresStore("postgresql://gzl:secret@db.internal/gzl")
+    store = PostgresStore("postgresql://gazelle:secret@db.internal/gazelle")
     runtime = Runtime(store=store, policy=load_policy_file("policy.yaml"))
 
 NOTE: This is the v0.8 storage backend. Implements the full SQLiteStore

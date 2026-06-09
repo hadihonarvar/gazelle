@@ -167,7 +167,7 @@ gazelle policy bundle-id        # content-addressed bundle ID
 ## Repo layout
 
 ```
-gzl/
+gazelle/
 ├── docs/
 │   ├── 00-execution-plan.md      ← read first
 │   ├── 01-data-model.md

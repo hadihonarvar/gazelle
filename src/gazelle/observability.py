@@ -97,8 +97,8 @@ def trace_step(run_id: str, seq: int, tool: str):
         yield
         return
     with _otel_tracer.start_as_current_span(
-        "gzl.step",
-        attributes={"gzl.run_id": run_id, "gzl.step_seq": seq, "gzl.tool": tool},
+        "gazelle.step",
+        attributes={"gazelle.run_id": run_id, "gazelle.step_seq": seq, "gazelle.tool": tool},
     ):
         yield
 

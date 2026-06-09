@@ -41,7 +41,7 @@ class _BenchAgent:
         return ToolCall("noop", {"value": i}, call_id=f"c{i}")
 
 
-async def bench_gzl() -> tuple[float, int]:
+async def bench_gazelle() -> tuple[float, int]:
     with tempfile.TemporaryDirectory() as tmp:
         store = SQLiteStore(Path(tmp) / "state.db")
         bundle = compile_policy("version: 1\ndefaults: { on_no_match: allow }\nrules: []")
@@ -84,11 +84,11 @@ async def main() -> None:
     async def noop(value: int) -> int:
         return value + 1
 
-    gazelle_elapsed, gazelle_steps = await bench_gzl()
+    gazelle_elapsed, gazelle_steps = await bench_gazelle()
     naked_elapsed, naked_steps = await bench_naked()
 
     print(f"{'naked':>12}  {naked_elapsed * 1000:>10.2f}ms  {naked_elapsed / naked_steps * 1000:>10.3f}ms/step")
-    print(f"{'gzl':>12}  {gazelle_elapsed * 1000:>10.2f}ms  {gazelle_elapsed / gazelle_steps * 1000:>10.3f}ms/step")
+    print(f"{'gazelle':>12}  {gazelle_elapsed * 1000:>10.2f}ms  {gazelle_elapsed / gazelle_steps * 1000:>10.3f}ms/step")
     overhead_ms = (gazelle_elapsed - naked_elapsed) / gazelle_steps * 1000
     print(f"{'overhead':>12}  {overhead_ms:>10.3f}ms/step")
 

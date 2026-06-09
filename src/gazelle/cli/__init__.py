@@ -1,1 +1,1 @@
-"""CLI for gzl."""
+"""CLI for gazelle."""

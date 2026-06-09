@@ -43,7 +43,7 @@ Out of scope:
 
 - Vulnerabilities in third-party tools you wrap with `@tool` (those are your dependency's problem)
 - Misconfigured policies that allow dangerous actions (this is the operator's responsibility)
-- Issues in the optional adapters (`gzl/adapters/*`) that depend on bugs in the wrapped SDK
+- Issues in the optional adapters (`gazelle/adapters/*`) that depend on bugs in the wrapped SDK
 - Findings against EOL versions
 
 ## Threat model

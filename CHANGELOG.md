@@ -5,10 +5,10 @@ All notable changes to Gazelle will be documented here. The format follows [Keep
 ## [Unreleased]
 
 ### Added
-- LangGraph adapter (`gzl.adapters.langgraph`)
-- CrewAI adapter (`gzl.adapters.crewai`)
-- MCP universal adapter (`gzl.adapters.mcp`)
-- Postgres store backend (`gzl.stores.postgres`)
+- LangGraph adapter (`gazelle.adapters.langgraph`)
+- CrewAI adapter (`gazelle.adapters.crewai`)
+- MCP universal adapter (`gazelle.adapters.mcp`)
+- Postgres store backend (`gazelle.stores.postgres`)
 - Subprocess sandbox mode for `@tool(sandbox="subprocess")`
 - Threat model document at `docs/threat-model.md`
 - Benchmarks under `benchmarks/`
@@ -27,8 +27,8 @@ All notable changes to Gazelle will be documented here. The format follows [Keep
 - SQLite store with hash-chained audit log.
 - Public SDK: `@tool` decorator, `runtime.run/resume/approve/deny`, `Agent` protocol.
 - CLI: `init`, `run`, `resume`, `ps`, `trace`, `approvals`, `approve`, `deny`, `audit verify/export`, `policy lint`, `policy bundle-id`.
-- Anthropic Claude adapter (`gzl.adapters.anthropic_sdk.ClaudeAgent`).
-- OpenAI GPT adapter (`gzl.adapters.openai_sdk.OpenAIAgent`).
+- Anthropic Claude adapter (`gazelle.adapters.anthropic_sdk.ClaudeAgent`).
+- OpenAI GPT adapter (`gazelle.adapters.openai_sdk.OpenAIAgent`).
 - Shadow library: `shell_shadow`, `write_file_shadow`, `delete_file_shadow`, `sql_shadow`, `http_shadow`.
 - Crash-resume + approval-resume flow.
 - Examples: `hello_agent.py`, `file_janitor.py`, `claude_janitor.py`.

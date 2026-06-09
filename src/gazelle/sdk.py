@@ -1,7 +1,7 @@
 """Public agent contract and message shapes.
 
 The runtime accepts any object implementing the Agent protocol below.
-Adapters for LangGraph, CrewAI, OpenAI Agents SDK live in gzl/adapters/.
+Adapters for LangGraph, CrewAI, OpenAI Agents SDK live in gazelle/adapters/.
 """
 
 from __future__ import annotations

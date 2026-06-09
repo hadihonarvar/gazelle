@@ -1,7 +1,7 @@
 """LangGraph adapter.
 
 Wraps a compiled LangGraph state graph as an Agent. The graph's ToolNode
-calls are intercepted; each tool invocation becomes a gzl ActionRequest
+calls are intercepted; each tool invocation becomes a gazelle ActionRequest
 that flows through the policy + audit chain.
 
 Requires `pip install gazelle[langgraph]`.
@@ -45,7 +45,7 @@ class LangGraphAgent:
         self._state: dict[str, Any] = {"messages": []}
 
     async def step(self, conversation: list[Message]):
-        # Translate the gzl conversation into LangGraph's message dict shape.
+        # Translate the gazelle conversation into LangGraph's message dict shape.
         self._state["messages"] = _to_langchain_messages(conversation)
 
         # Step the graph until it either proposes a tool call or finishes.

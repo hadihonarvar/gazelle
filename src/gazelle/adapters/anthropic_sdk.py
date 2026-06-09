@@ -142,7 +142,7 @@ def _annotation_to_schema(annotation: Any) -> dict[str, Any]:
 
 
 def _to_anthropic_messages(conversation: list[Message]) -> list[dict[str, Any]]:
-    """Convert gzl Messages into Anthropic Messages API shape.
+    """Convert gazelle Messages into Anthropic Messages API shape.
 
     Tool results become user-role messages with `tool_result` content blocks.
     """
