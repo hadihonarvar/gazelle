@@ -1,0 +1,23 @@
+.PHONY: install test lint type fmt all clean
+
+install:
+	pip install -e ".[dev]"
+
+test:
+	pytest -v
+
+lint:
+	ruff check src tests
+
+fmt:
+	ruff format src tests
+	ruff check --fix src tests
+
+type:
+	mypy src
+
+all: fmt lint type test
+
+clean:
+	rm -rf build dist *.egg-info .pytest_cache .mypy_cache .ruff_cache
+	find . -type d -name __pycache__ -exec rm -rf {} +

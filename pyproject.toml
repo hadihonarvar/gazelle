@@ -1,0 +1,164 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gazelle"
+description = "Framework-agnostic runtime that makes any AI agent safe and reliable enough to put in production: policy-gated execution, durable checkpointing, hash-chained audit."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Gazelle contributors" }]
+keywords = [
+    "ai",
+    "agents",
+    "llm",
+    "policy",
+    "reliability",
+    "audit",
+    "durable-execution",
+    "agentic",
+    "claude",
+    "openai",
+    "langgraph",
+    "crewai",
+    "mcp",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Information Technology",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Monitoring",
+    "Topic :: Security",
+    "Framework :: AsyncIO",
+    "Typing :: Typed",
+]
+dynamic = ["version"]
+dependencies = [
+    "click>=8.1",
+    "pyyaml>=6.0",
+    "python-ulid>=2.2",
+    "rich>=13.7",
+    "msgpack>=1.0",
+    # python-ulid's wheel imports typing_extensions but doesn't pin it as a
+    # runtime dep; declare it explicitly so `pip install gazelle` works alone.
+    "typing_extensions>=4.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "hypothesis>=6.100",
+    "build>=1.2",
+    "twine>=5.0",
+]
+anthropic = ["anthropic>=0.30"]
+openai = ["openai>=1.40"]
+langgraph = ["langgraph>=0.2"]
+crewai = ["crewai>=0.40"]
+mcp = ["mcp>=1.0"]
+postgres = ["psycopg[binary]>=3.1"]
+prometheus = ["prometheus-client>=0.20"]
+otel = [
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-http>=1.27",
+]
+all = [
+    "anthropic>=0.30",
+    "openai>=1.40",
+    "langgraph>=0.2",
+    "crewai>=0.40",
+    "mcp>=1.0",
+    "psycopg[binary]>=3.1",
+    "prometheus-client>=0.20",
+    "opentelemetry-sdk>=1.27",
+    "opentelemetry-exporter-otlp-proto-http>=1.27",
+]
+
+[project.scripts]
+gazelle = "gazelle.cli.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/hadihonarvar/gazelle"
+Repository = "https://github.com/hadihonarvar/gazelle"
+Documentation = "https://github.com/hadihonarvar/gazelle/tree/main/docs"
+Issues = "https://github.com/hadihonarvar/gazelle/issues"
+Changelog = "https://github.com/hadihonarvar/gazelle/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "src/gazelle/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gazelle"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/gazelle",
+    "tests",
+    "docs",
+    "examples",
+    "benchmarks",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
+    "pyproject.toml",
+    "Makefile",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "UP", "RUF"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B017", "RUF012"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+source = ["src/gazelle"]
+branch = true
+omit = [
+    "src/gazelle/adapters/*",
+    "src/gazelle/stores/postgres.py",
+    "src/gazelle/observability.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
