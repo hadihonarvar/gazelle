@@ -140,9 +140,7 @@ def run(script: str, task: str | None, policy_path: str, env: str) -> None:
     if result.final_answer:
         console.print(f"[bold]Final:[/] {result.final_answer}")
     if result.paused_approval_id:
-        console.print(
-            f"[yellow]Paused for approval:[/] lynx approve {result.paused_approval_id}"
-        )
+        console.print(f"[yellow]Paused for approval:[/] lynx approve {result.paused_approval_id}")
     if result.error:
         console.print(f"[red]Error:[/] {result.error}")
         raise SystemExit(2)
