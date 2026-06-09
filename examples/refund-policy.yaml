@@ -1,0 +1,55 @@
+# Customer-support refund policy. Demonstrates the approve_required verdict.
+
+version: 1
+defaults:
+  on_no_match: deny
+
+predicates:
+  is_refund: { tool: refund_customer }
+  is_watchlist_customer:
+    tool: refund_customer
+    args.customer_id.in: ["C-789"]      # in prod: load from DB / cache
+
+rules:
+  # 1. Hard block: never refund a fraud-watchlist customer.
+  - id: fraud-watchlist-block
+    priority: 100
+    match: is_watchlist_customer
+    decision: deny
+    reason: "Customer is on the fraud watchlist; finance must handle manually."
+
+  # 2. Hard block: amounts over $500 never via the bot.
+  - id: over-500-blocked
+    priority: 90
+    match:
+      all_of:
+        - is_refund
+        - { args.amount_usd.gt: 500 }
+    decision: deny
+    reason: "Amounts over $500 require Finance, not Support."
+
+  # 3. $50-$500 needs a supervisor's sign-off.
+  - id: medium-refund-needs-approval
+    priority: 50
+    match:
+      all_of:
+        - is_refund
+        - { args.amount_usd.gt: 50 }
+    decision: approve_required
+    approvers: ["supervisor:on-call"]
+    timeout_seconds: 1800
+
+  # 4. Small refunds auto-process.
+  - id: small-refund-allowed
+    priority: 30
+    match:
+      all_of:
+        - is_refund
+        - { args.amount_usd.le: 50 }
+    decision: allow
+
+  # 5. Reads always allowed.
+  - id: reads-allowed
+    priority: 10
+    match: { declared.scope.contains: "customer:read" }
+    decision: allow

@@ -207,6 +207,56 @@ See `docs/00-execution-plan.md` for the week-by-week plan.
 
 ---
 
+## Performance
+
+| What | Number |
+|------|--------|
+| Policy evaluation (typical, ≤100 rules) | ~100 µs / call |
+| Policy evaluation (worst case, 1000 rules) | ~1 ms / call |
+| End-to-end overhead per step | ~3 ms (SQLite-bound) |
+| Test suite | 57 tests in 1.1 s |
+
+For real agents where each step is a 500 ms – 5 s LLM call, Gazelle's overhead is under 1%. Reproducible numbers in [`benchmarks/`](benchmarks/README.md).
+
+---
+
+## Documentation
+
+Start here if you're new:
+
+| Doc | What it answers |
+|-----|----------------|
+| [Why Gazelle](docs/why-gazelle.md) | When should I use this? When shouldn't I? |
+| [Getting started](docs/getting-started.md) | 5-minute walkthrough from install to first denial |
+| [Concepts](docs/concepts.md) | Vocabulary: Tool, Policy, Verdict, Run, AuditEvent |
+| [Policy cookbook](docs/cookbook.md) | Copy-pasteable rules for common patterns |
+| [FAQ](docs/faq.md) | Common first-time questions |
+
+Reference docs:
+
+| Doc | What it covers |
+|-----|----------------|
+| [Data model](docs/01-data-model.md) | The six core types + SQLite schema |
+| [Policy language](docs/02-policy-language.md) | Full YAML grammar + predicates + Python escape hatch |
+| [SDK + CLI](docs/03-sdk-and-cli.md) | The public Python API + every CLI command |
+| [Threat model](docs/threat-model.md) | STRIDE analysis + guarantees + non-goals |
+| [How v0.1 was built](docs/00-execution-plan.md) | The MVP execution plan (historical) |
+
+Examples:
+
+| Demo | What it shows |
+|------|--------------|
+| [`hello_agent.py`](examples/hello_agent.py) | Minimal scripted agent — the smallest end-to-end loop |
+| [`file_janitor.py`](examples/file_janitor.py) | Real filesystem demo: allow / deny / dry_run with real files |
+| [`refund_agent.py`](examples/refund_agent.py) | Customer-support refund agent — demonstrates `approve_required` |
+| [`claude_janitor.py`](examples/claude_janitor.py) | Real Claude agent driving the file demo |
+| [`openai_janitor.py`](examples/openai_janitor.py) | Same demo, OpenAI GPT |
+| [`fastapi_server.py`](examples/fastapi_server.py) | Drop-in FastAPI integration |
+
+See [`examples/README.md`](examples/README.md) for the full index + how to run them.
+
+---
+
 ## Status
 
 Alpha. APIs may change before v1.0. Use in production at your own risk; report issues liberally.
