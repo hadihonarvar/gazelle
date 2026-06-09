@@ -145,6 +145,12 @@ disallow_untyped_defs = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+filterwarnings = [
+    # asyncio.subprocess transports created inside the sandbox subprocess test
+    # outlive the event loop and emit a benign "Loop ... is closed" warning
+    # at GC. Doesn't affect correctness; only adds visual noise to CI.
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+]
 
 [tool.coverage.run]
 source = ["src/gazelle"]
