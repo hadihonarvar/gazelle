@@ -9,12 +9,12 @@ from pathlib import Path
 
 import pytest
 
-from gazelle import FinalAnswer, Message, ToolCall, tool
-from gazelle.core.mediator import get_registry
-from gazelle.core.types import RunStatus
-from gazelle.policy import compile_policy
-from gazelle.runtime import Runtime
-from gazelle.stores.sqlite import SQLiteStore
+from lynx import FinalAnswer, Message, ToolCall, tool
+from lynx.core.mediator import get_registry
+from lynx.core.types import RunStatus
+from lynx.policy import compile_policy
+from lynx.runtime import Runtime
+from lynx.stores.sqlite import SQLiteStore
 
 
 @pytest.fixture

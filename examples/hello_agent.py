@@ -2,9 +2,9 @@
 
 Run with:
 
-    cd gazelle/
+    cd lynx/
     pip install -e .
-    gazelle init
+    lynx init
     python examples/hello_agent.py
 
 What it demonstrates:
@@ -12,7 +12,7 @@ What it demonstrates:
     - A "dangerous" rm -rf attempt → DENIED by default policy
     - A safe `ls` → ALLOWED
     - A controlled `touch` in workspace → DRY_RUN first under default policy
-    - Final answer + full audit chain available via `gazelle trace`
+    - Final answer + full audit chain available via `lynx trace`
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import shlex
 import subprocess
 from pathlib import Path
 
-from gazelle import (
+from lynx import (
     FinalAnswer,
     Message,
     ToolCall,
@@ -106,7 +106,7 @@ async def main() -> None:
     policy_path = project_dir / "policy.yaml"
     if not policy_path.exists():
         # Use the default policy embedded in the CLI
-        from gazelle.cli.main import _DEFAULT_POLICY
+        from lynx.cli.main import _DEFAULT_POLICY
 
         policy_path.write_text(_DEFAULT_POLICY)
         print(f"Wrote default policy to {policy_path}")
@@ -129,8 +129,8 @@ async def main() -> None:
     print(f"final:  {result.final_answer}")
     print("─" * 60)
     print("Try:")
-    print(f"  gazelle trace {result.run_id}")
-    print(f"  gazelle audit verify {result.run_id}")
+    print(f"  lynx trace {result.run_id}")
+    print(f"  lynx audit verify {result.run_id}")
 
 
 if __name__ == "__main__":

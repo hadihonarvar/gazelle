@@ -15,8 +15,8 @@ import os
 import shutil
 from pathlib import Path
 
-from gazelle import runtime, tool
-from gazelle.adapters.openai_sdk import OpenAIAgent
+from lynx import runtime, tool
+from lynx.adapters.openai_sdk import OpenAIAgent
 
 
 @tool(cost="low", reversible=True, scope=["filesystem:read"])
@@ -105,8 +105,8 @@ async def main() -> None:
     print("─" * 70)
     print(f"After:    {sorted(p.name for p in workspace.iterdir()) if workspace.exists() else '(deleted)'}")
     print()
-    print(f"  gazelle trace {result.run_id}")
-    print(f"  gazelle audit verify {result.run_id}")
+    print(f"  lynx trace {result.run_id}")
+    print(f"  lynx audit verify {result.run_id}")
 
 
 if __name__ == "__main__":

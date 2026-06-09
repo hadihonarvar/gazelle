@@ -16,7 +16,7 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from typing import Any
 
-from gazelle.core.types import (
+from lynx.core.types import (
     ActionRequest,
     ActionResult,
     Decision,
@@ -124,7 +124,7 @@ class ApprovalBroker:
     def open(
         self, run_id: str, step_seq: int, action: ActionRequest, decision: Decision
     ) -> ApprovalRequest:
-        from gazelle.core.types import new_id
+        from lynx.core.types import new_id
 
         req = ApprovalRequest(
             id=new_id("A"),

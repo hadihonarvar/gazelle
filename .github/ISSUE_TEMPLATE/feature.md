@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Propose a new capability for Gazelle
+about: Propose a new capability for Lynx
 title: "[feat] "
 labels: enhancement
 ---
@@ -9,7 +9,7 @@ labels: enhancement
 
 <!-- The motivation, in plain language. Real-world scenario beats abstraction. -->
 
-## What you'd like Gazelle to do
+## What you'd like Lynx to do
 
 <!-- The proposed shape — API, CLI command, config field, policy verb. -->
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from gazelle.core.policy import compile_policy
+from lynx.core.policy import compile_policy
 
 
 def test_regex_redos_pattern_rejected():

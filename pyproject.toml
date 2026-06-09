@@ -3,13 +3,13 @@ requires = ["hatchling>=1.21"]
 build-backend = "hatchling.build"
 
 [project]
-name = "gazelle"
+name = "lynx-agent"
 description = "Framework-agnostic runtime that makes any AI agent safe and reliable enough to put in production: policy-gated execution, durable checkpointing, hash-chained audit."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
-authors = [{ name = "Gazelle contributors" }]
+authors = [{ name = "Lynx contributors" }]
 keywords = [
     "ai",
     "agents",
@@ -53,7 +53,7 @@ dependencies = [
     "rich>=13.7",
     "msgpack>=1.0",
     # python-ulid's wheel imports typing_extensions but doesn't pin it as a
-    # runtime dep; declare it explicitly so `pip install gazelle` works alone.
+    # runtime dep; declare it explicitly so `pip install lynx-agent` works alone.
     "typing_extensions>=4.5",
 ]
 
@@ -91,24 +91,24 @@ all = [
 ]
 
 [project.scripts]
-gazelle = "gazelle.cli.main:cli"
+lynx = "lynx.cli.main:cli"
 
 [project.urls]
-Homepage = "https://github.com/hadihonarvar/gazelle"
-Repository = "https://github.com/hadihonarvar/gazelle"
-Documentation = "https://github.com/hadihonarvar/gazelle/tree/main/docs"
-Issues = "https://github.com/hadihonarvar/gazelle/issues"
-Changelog = "https://github.com/hadihonarvar/gazelle/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/hadihonarvar/lynx"
+Repository = "https://github.com/hadihonarvar/lynx"
+Documentation = "https://github.com/hadihonarvar/lynx/tree/main/docs"
+Issues = "https://github.com/hadihonarvar/lynx/issues"
+Changelog = "https://github.com/hadihonarvar/lynx/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
-path = "src/gazelle/__init__.py"
+path = "src/lynx/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/gazelle"]
+packages = ["src/lynx"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "src/gazelle",
+    "src/lynx",
     "tests",
     "docs",
     "examples",
@@ -153,12 +153,12 @@ filterwarnings = [
 ]
 
 [tool.coverage.run]
-source = ["src/gazelle"]
+source = ["src/lynx"]
 branch = true
 omit = [
-    "src/gazelle/adapters/*",
-    "src/gazelle/stores/postgres.py",
-    "src/gazelle/observability.py",
+    "src/lynx/adapters/*",
+    "src/lynx/stores/postgres.py",
+    "src/lynx/observability.py",
 ]
 
 [tool.coverage.report]

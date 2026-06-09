@@ -19,7 +19,7 @@ from typing import Any
 
 import yaml
 
-from gazelle.core.types import (
+from lynx.core.types import (
     ActionRequest,
     Decision,
     ExecutionContext,

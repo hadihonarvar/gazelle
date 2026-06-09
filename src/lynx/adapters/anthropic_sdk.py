@@ -1,13 +1,13 @@
 """Anthropic Claude adapter.
 
-Wraps the Anthropic Messages API into the Gazelle Agent protocol. The user's
+Wraps the Anthropic Messages API into the Lynx Agent protocol. The user's
 @tool decorators register with the registry; this adapter discovers them and
 exposes them to Claude as tool_use definitions.
 
 Example::
 
-    from gazelle import tool, runtime
-    from gazelle.adapters.anthropic_sdk import ClaudeAgent
+    from lynx import tool, runtime
+    from lynx.adapters.anthropic_sdk import ClaudeAgent
 
     @tool(reversible=False, scope=["filesystem:write"])
     async def shell(cmd: str) -> str: ...
@@ -15,7 +15,7 @@ Example::
     agent = ClaudeAgent(model="claude-opus-4-7", system="You are a careful sysadmin.")
     await runtime.run(agent, task="clean up /tmp", policy="policy.yaml")
 
-Requires `pip install gazelle[anthropic]` (or `pip install anthropic`).
+Requires `pip install lynx-agent[anthropic]` (or `pip install anthropic`).
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ from __future__ import annotations
 import inspect
 from typing import Any
 
-from gazelle.core.mediator import RegisteredTool, get_registry
-from gazelle.sdk import FinalAnswer, Message, ToolCall
+from lynx.core.mediator import RegisteredTool, get_registry
+from lynx.sdk import FinalAnswer, Message, ToolCall
 
 
 class ClaudeAgent:
@@ -142,7 +142,7 @@ def _annotation_to_schema(annotation: Any) -> dict[str, Any]:
 
 
 def _to_anthropic_messages(conversation: list[Message]) -> list[dict[str, Any]]:
-    """Convert gazelle Messages into Anthropic Messages API shape.
+    """Convert lynx Messages into Anthropic Messages API shape.
 
     Tool results become user-role messages with `tool_result` content blocks.
     """

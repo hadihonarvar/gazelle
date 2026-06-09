@@ -19,9 +19,9 @@ def test_langgraph_adapter_import_guard():
     saved = sys.modules.get("langgraph")
     sys.modules["langgraph"] = None  # type: ignore[assignment]
     try:
-        if "gazelle.adapters.langgraph_adapter" in sys.modules:
-            importlib.reload(sys.modules["gazelle.adapters.langgraph_adapter"])
-        from gazelle.adapters.langgraph_adapter import LangGraphAgent
+        if "lynx.adapters.langgraph_adapter" in sys.modules:
+            importlib.reload(sys.modules["lynx.adapters.langgraph_adapter"])
+        from lynx.adapters.langgraph_adapter import LangGraphAgent
 
         with pytest.raises(ImportError, match="langgraph"):
             LangGraphAgent(compiled_graph=None)
@@ -39,9 +39,9 @@ def test_crewai_adapter_import_guard():
     saved = sys.modules.get("crewai")
     sys.modules["crewai"] = None  # type: ignore[assignment]
     try:
-        if "gazelle.adapters.crewai_adapter" in sys.modules:
-            importlib.reload(sys.modules["gazelle.adapters.crewai_adapter"])
-        from gazelle.adapters.crewai_adapter import CrewAIAgent
+        if "lynx.adapters.crewai_adapter" in sys.modules:
+            importlib.reload(sys.modules["lynx.adapters.crewai_adapter"])
+        from lynx.adapters.crewai_adapter import CrewAIAgent
 
         with pytest.raises(ImportError, match="crewai"):
             CrewAIAgent(crew=None)
@@ -58,7 +58,7 @@ async def test_mcp_adapter_import_guard():
     saved = sys.modules.get("mcp")
     sys.modules["mcp"] = None  # type: ignore[assignment]
     try:
-        from gazelle.adapters.mcp import register_mcp_server
+        from lynx.adapters.mcp import register_mcp_server
 
         with pytest.raises(ImportError, match="mcp"):
             await register_mcp_server("nonexistent-cmd")

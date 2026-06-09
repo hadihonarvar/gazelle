@@ -6,12 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from gazelle import FinalAnswer, ToolCall, tool
-from gazelle.core.mediator import get_registry
-from gazelle.core.types import RunStatus
-from gazelle.policy import compile_policy
-from gazelle.runtime import Runtime
-from gazelle.stores.sqlite import SQLiteStore
+from lynx import FinalAnswer, ToolCall, tool
+from lynx.core.mediator import get_registry
+from lynx.core.types import RunStatus
+from lynx.policy import compile_policy
+from lynx.runtime import Runtime
+from lynx.stores.sqlite import SQLiteStore
 
 
 @pytest.fixture
@@ -104,7 +104,7 @@ async def test_deny_then_resume_continues_loop(fresh):
 
 async def test_idempotency_key_is_deterministic_across_runs():
     """Same (run_id, seq, tool, args) → same key, every time."""
-    from gazelle.core.types import compute_idempotency_key
+    from lynx.core.types import compute_idempotency_key
 
     k1 = compute_idempotency_key("R1", 0, "shell", {"cmd": "ls -la"})
     k2 = compute_idempotency_key("R1", 0, "shell", {"cmd": "ls -la"})

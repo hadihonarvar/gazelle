@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from click.testing import CliRunner
 
-from gazelle.cli.main import cli
+from lynx.cli.main import cli
 
 
 def test_version_command():
@@ -19,8 +19,8 @@ def test_init_creates_policy_and_config(tmp_path):
     res = runner.invoke(cli, ["init", "--dir", str(tmp_path)])
     assert res.exit_code == 0
     assert (tmp_path / "policy.yaml").exists()
-    assert (tmp_path / "gazelle.toml").exists()
-    assert (tmp_path / ".gazelle").is_dir()
+    assert (tmp_path / "lynx.toml").exists()
+    assert (tmp_path / ".lynx").is_dir()
 
 
 def test_policy_lint_clean(tmp_path):

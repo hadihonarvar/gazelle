@@ -10,16 +10,16 @@ from datetime import UTC, datetime
 
 import pytest
 
-from gazelle import tool
-from gazelle.core.mediator import (
+from lynx import tool
+from lynx.core.mediator import (
     ApprovalPending,
     ToolDenied,
     get_broker,
     get_registry,
     mediate,
 )
-from gazelle.core.policy import allow, approve_required, deny, dry_run, transform
-from gazelle.core.types import ActionRequest, ExecutionContext, Principal, ToolMetadata
+from lynx.core.policy import allow, approve_required, deny, dry_run, transform
+from lynx.core.types import ActionRequest, ExecutionContext, Principal, ToolMetadata
 
 
 def _ctx() -> ExecutionContext:

@@ -9,10 +9,10 @@ content-addressed hash chain as SQLite.
 
 Usage::
 
-    from gazelle.stores.postgres import PostgresStore
-    from gazelle.runtime import Runtime
+    from lynx.stores.postgres import PostgresStore
+    from lynx.runtime import Runtime
 
-    store = PostgresStore("postgresql://gazelle:secret@db.internal/gazelle")
+    store = PostgresStore("postgresql://lynx:secret@db.internal/lynx")
     runtime = Runtime(store=store, policy=load_policy_file("policy.yaml"))
 
 NOTE: This is the v0.8 storage backend. Implements the full SQLiteStore
@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 
-from gazelle.core.types import (
+from lynx.core.types import (
     GENESIS_HASH,
     AuditEvent,
     Budget,
@@ -36,7 +36,7 @@ from gazelle.core.types import (
 )
 
 _DDL = """
-CREATE TABLE IF NOT EXISTS gazelle_tasks (
+CREATE TABLE IF NOT EXISTS lynx_tasks (
     id              TEXT PRIMARY KEY,
     goal            TEXT NOT NULL,
     created_at      TIMESTAMPTZ NOT NULL,
@@ -46,9 +46,9 @@ CREATE TABLE IF NOT EXISTS gazelle_tasks (
     metadata        JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
-CREATE TABLE IF NOT EXISTS gazelle_runs (
+CREATE TABLE IF NOT EXISTS lynx_runs (
     id              TEXT PRIMARY KEY,
-    task_id         TEXT NOT NULL REFERENCES gazelle_tasks(id),
+    task_id         TEXT NOT NULL REFERENCES lynx_tasks(id),
     status          TEXT NOT NULL,
     started_at      TIMESTAMPTZ NOT NULL,
     ended_at        TIMESTAMPTZ,
@@ -56,12 +56,12 @@ CREATE TABLE IF NOT EXISTS gazelle_runs (
     last_step_seq   INTEGER NOT NULL DEFAULT -1,
     error           TEXT
 );
-CREATE INDEX IF NOT EXISTS gazelle_runs_status ON gazelle_runs(status);
-CREATE INDEX IF NOT EXISTS gazelle_runs_task ON gazelle_runs(task_id);
+CREATE INDEX IF NOT EXISTS lynx_runs_status ON lynx_runs(status);
+CREATE INDEX IF NOT EXISTS lynx_runs_task ON lynx_runs(task_id);
 
-CREATE TABLE IF NOT EXISTS gazelle_steps (
+CREATE TABLE IF NOT EXISTS lynx_steps (
     id              TEXT PRIMARY KEY,
-    run_id          TEXT NOT NULL REFERENCES gazelle_runs(id),
+    run_id          TEXT NOT NULL REFERENCES lynx_runs(id),
     seq             INTEGER NOT NULL,
     model_call      JSONB,
     action          JSONB,
@@ -72,9 +72,9 @@ CREATE TABLE IF NOT EXISTS gazelle_steps (
     ended_at        TIMESTAMPTZ NOT NULL,
     UNIQUE (run_id, seq)
 );
-CREATE INDEX IF NOT EXISTS gazelle_steps_run ON gazelle_steps(run_id, seq);
+CREATE INDEX IF NOT EXISTS lynx_steps_run ON lynx_steps(run_id, seq);
 
-CREATE TABLE IF NOT EXISTS gazelle_audit_events (
+CREATE TABLE IF NOT EXISTS lynx_audit_events (
     id              TEXT PRIMARY KEY,
     prev            TEXT NOT NULL,
     run_id          TEXT NOT NULL,
@@ -84,9 +84,9 @@ CREATE TABLE IF NOT EXISTS gazelle_audit_events (
     body            JSONB NOT NULL,
     signature       BYTEA
 );
-CREATE INDEX IF NOT EXISTS gazelle_audit_events_run ON gazelle_audit_events(run_id, seq);
+CREATE INDEX IF NOT EXISTS lynx_audit_events_run ON lynx_audit_events(run_id, seq);
 
-CREATE TABLE IF NOT EXISTS gazelle_approval_requests (
+CREATE TABLE IF NOT EXISTS lynx_approval_requests (
     id              TEXT PRIMARY KEY,
     run_id          TEXT NOT NULL,
     step_seq        INTEGER NOT NULL,
@@ -106,7 +106,7 @@ class PostgresStore:
 
     Lazy-imports psycopg so the dependency is optional. Install with::
 
-        pip install "gazelle[postgres]"
+        pip install "lynx-agent[postgres]"
     """
 
     def __init__(self, dsn: str) -> None:
@@ -135,7 +135,7 @@ class PostgresStore:
     def save_task(self, task: Task) -> None:
         with self._conn.cursor() as cur:
             cur.execute(
-                """INSERT INTO gazelle_tasks
+                """INSERT INTO lynx_tasks
                    (id, goal, created_at, created_by, policy_bundle_id, budget, metadata)
                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (id) DO UPDATE
@@ -156,7 +156,7 @@ class PostgresStore:
 
     def get_task(self, task_id: str) -> Task | None:
         with self._conn.cursor() as cur:
-            cur.execute("SELECT * FROM gazelle_tasks WHERE id = %s", (task_id,))
+            cur.execute("SELECT * FROM lynx_tasks WHERE id = %s", (task_id,))
             row = cur.fetchone()
         if row is None:
             return None
@@ -189,7 +189,7 @@ class PostgresStore:
     def save_run(self, run: Run) -> None:
         with self._conn.cursor() as cur:
             cur.execute(
-                """INSERT INTO gazelle_runs
+                """INSERT INTO lynx_runs
                    (id, task_id, status, started_at, ended_at, resume_token,
                     last_step_seq, error)
                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -214,7 +214,7 @@ class PostgresStore:
 
     def get_run(self, run_id: str) -> Run | None:
         with self._conn.cursor() as cur:
-            cur.execute("SELECT * FROM gazelle_runs WHERE id = %s", (run_id,))
+            cur.execute("SELECT * FROM lynx_runs WHERE id = %s", (run_id,))
             row = cur.fetchone()
         if row is None:
             return None
@@ -238,7 +238,7 @@ class PostgresStore:
     def append_audit(self, event: AuditEvent) -> None:
         with self._conn.cursor() as cur:
             cur.execute(
-                """INSERT INTO gazelle_audit_events
+                """INSERT INTO lynx_audit_events
                    (id, prev, run_id, seq, kind, timestamp, body, signature)
                    VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)""",
                 (
@@ -257,7 +257,7 @@ class PostgresStore:
     def latest_audit_hash(self, run_id: str) -> str:
         with self._conn.cursor() as cur:
             cur.execute(
-                "SELECT id FROM gazelle_audit_events WHERE run_id = %s ORDER BY seq DESC LIMIT 1",
+                "SELECT id FROM lynx_audit_events WHERE run_id = %s ORDER BY seq DESC LIMIT 1",
                 (run_id,),
             )
             row = cur.fetchone()

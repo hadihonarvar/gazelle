@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from gazelle.core.types import (
+from lynx.core.types import (
     GENESIS_HASH,
     AuditEvent,
     canonical_json,
 )
-from gazelle.stores.sqlite import SQLiteStore
+from lynx.stores.sqlite import SQLiteStore
 
 
 @pytest.fixture

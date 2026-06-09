@@ -12,8 +12,8 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
-from gazelle.core.policy import compile_policy, evaluate
-from gazelle.core.types import (
+from lynx.core.policy import compile_policy, evaluate
+from lynx.core.types import (
     ActionRequest,
     ExecutionContext,
     Principal,

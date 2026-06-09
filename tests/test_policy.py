@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from gazelle.core.policy import compile_policy, evaluate
-from gazelle.core.types import (
+from lynx.core.policy import compile_policy, evaluate
+from lynx.core.types import (
     ActionRequest,
     ExecutionContext,
     Principal,

@@ -1,13 +1,13 @@
 ---
 name: Bug report
-about: Report a bug in Gazelle
+about: Report a bug in Lynx
 title: "[bug] "
 labels: bug
 ---
 
 ## What happened
 
-<!-- One short paragraph: what did Gazelle do that surprised you? -->
+<!-- One short paragraph: what did Lynx do that surprised you? -->
 
 ## What you expected
 
@@ -21,7 +21,7 @@ labels: bug
 
 ## Environment
 
-- Gazelle version: <!-- output of `gazelle --version` -->
+- Lynx version: <!-- output of `lynx --version` -->
 - Python version: <!-- output of `python --version` -->
 - OS:
 - Storage backend: <!-- sqlite / postgres -->
@@ -29,7 +29,7 @@ labels: bug
 
 ## Logs / audit chain
 
-<!-- If relevant, attach the output of `gazelle trace <run-id>` and any error stack trace. -->
+<!-- If relevant, attach the output of `lynx trace <run-id>` and any error stack trace. -->
 
 ## Additional context
 

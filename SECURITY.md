@@ -2,13 +2,13 @@
 
 ## Supported versions
 
-Gazelle is pre-1.0. We provide security fixes for the **latest minor release only**. From v1.0 onwards, we will support the latest two minor releases.
+Lynx is pre-1.0. We provide security fixes for the **latest minor release only**. From v1.0 onwards, we will support the latest two minor releases.
 
 ## Reporting a vulnerability
 
 **Please do not file public GitHub issues for security vulnerabilities.**
 
-Use **[GitHub Security Advisories](https://github.com/hadihonarvar/gazelle/security/advisories/new)** to file a private vulnerability report. This is the preferred channel — it gives us a private workspace to triage the issue and coordinate disclosure.
+Use **[GitHub Security Advisories](https://github.com/hadihonarvar/lynx/security/advisories/new)** to file a private vulnerability report. This is the preferred channel — it gives us a private workspace to triage the issue and coordinate disclosure.
 
 If you cannot use GitHub for the report, open a regular issue **titled only "Security contact request"** (no details) and a maintainer will reach out with a private channel within 48 hours.
 
@@ -43,9 +43,9 @@ Out of scope:
 
 - Vulnerabilities in third-party tools you wrap with `@tool` (those are your dependency's problem)
 - Misconfigured policies that allow dangerous actions (this is the operator's responsibility)
-- Issues in the optional adapters (`gazelle/adapters/*`) that depend on bugs in the wrapped SDK
+- Issues in the optional adapters (`lynx/adapters/*`) that depend on bugs in the wrapped SDK
 - Findings against EOL versions
 
 ## Threat model
 
-The full threat model lives in [`docs/threat-model.md`](docs/threat-model.md). It enumerates the trust boundaries Gazelle defends and the ones it does not.
+The full threat model lives in [`docs/threat-model.md`](docs/threat-model.md). It enumerates the trust boundaries Lynx defends and the ones it does not.

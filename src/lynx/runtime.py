@@ -11,12 +11,12 @@ from datetime import UTC
 from pathlib import Path
 from typing import Any
 
-from gazelle.core.mediator import get_broker
-from gazelle.core.policy import PolicyBundle, load_policy_file
-from gazelle.core.scheduler import RunResult, Scheduler
-from gazelle.core.types import Budget, Principal
-from gazelle.sdk import Agent
-from gazelle.stores.sqlite import SQLiteStore
+from lynx.core.mediator import get_broker
+from lynx.core.policy import PolicyBundle, load_policy_file
+from lynx.core.scheduler import RunResult, Scheduler
+from lynx.core.types import Budget, Principal
+from lynx.sdk import Agent
+from lynx.stores.sqlite import SQLiteStore
 
 
 class Runtime:
@@ -24,7 +24,7 @@ class Runtime:
 
     For most users::
 
-        from gazelle import runtime
+        from lynx import runtime
 
         result = await runtime.run(agent, task="...", policy="policy.yaml")
     """
@@ -44,7 +44,7 @@ class Runtime:
 
     def configure(
         self,
-        store_path: str | Path = ".gazelle/state.db",
+        store_path: str | Path = ".lynx/state.db",
         policy_path: str | Path | None = None,
     ) -> None:
         if self._store is None:

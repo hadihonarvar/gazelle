@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from gazelle.shadows.filesystem import delete_file_shadow, write_file_shadow
-from gazelle.shadows.http import http_shadow
-from gazelle.shadows.shell import shell_shadow
-from gazelle.shadows.sql import sql_shadow
+from lynx.shadows.filesystem import delete_file_shadow, write_file_shadow
+from lynx.shadows.http import http_shadow
+from lynx.shadows.shell import shell_shadow
+from lynx.shadows.sql import sql_shadow
 
 # --- shell ----------------------------------------------------------------
 

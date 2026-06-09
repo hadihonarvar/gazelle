@@ -1,6 +1,6 @@
 """Top-level re-exports for the policy module."""
 
-from gazelle.core.policy import (
+from lynx.core.policy import (
     PolicyBundle,
     PolicyDefaults,
     allow,

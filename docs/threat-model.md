@@ -1,6 +1,6 @@
-# Gazelle Threat Model
+# Lynx Threat Model
 
-A structured walkthrough of what Gazelle defends against, what it does *not*, and how the trust boundaries are drawn. Format follows the STRIDE framework: **S**poofing, **T**ampering, **R**epudiation, **I**nformation disclosure, **D**enial of service, **E**levation of privilege.
+A structured walkthrough of what Lynx defends against, what it does *not*, and how the trust boundaries are drawn. Format follows the STRIDE framework: **S**poofing, **T**ampering, **R**epudiation, **I**nformation disclosure, **D**enial of service, **E**levation of privilege.
 
 > Status: pre-1.0. Mitigations marked **(v1.0)** are landed; **(v1.1)** are roadmap.
 
@@ -98,12 +98,12 @@ The **agent is untrusted**. The **kernel is trusted**. The **tool author and ope
 
 ---
 
-## 3. Things Gazelle does NOT defend against
+## 3. Things Lynx does NOT defend against
 
 1. **A malicious operator.** If the person writing policies is hostile, the policies are hostile. Out of scope.
-2. **A compromised kernel binary.** If `pip install gazelle` itself is from a typosquatted package, all bets are off. PyPI's Trusted Publishing via OIDC mitigates supply-chain risk on our end.
+2. **A compromised kernel binary.** If `pip install lynx-agent` itself is from a typosquatted package, all bets are off. PyPI's Trusted Publishing via OIDC mitigates supply-chain risk on our end.
 3. **Side-channel attacks on the host OS.** Timing channels, RAM scraping, etc. are below our threat model.
-4. **The wrapped LLM's prompt-injection vulnerabilities.** If a user puts a prompt-injection payload in a document that the agent reads, the agent may propose actions the user did not intend. Gazelle prevents those *actions* from being unsafe; it does not prevent the *intent corruption*. Operators must still treat LLM outputs as untrusted.
+4. **The wrapped LLM's prompt-injection vulnerabilities.** If a user puts a prompt-injection payload in a document that the agent reads, the agent may propose actions the user did not intend. Lynx prevents those *actions* from being unsafe; it does not prevent the *intent corruption*. Operators must still treat LLM outputs as untrusted.
 5. **Wrapped-tool vulnerabilities.** If you wrap a vulnerable `eval()`-based tool with `@tool`, the policy can deny that tool — but if it's allowed, the vulnerability stays.
 
 ---

@@ -7,7 +7,7 @@ The contract between the operator (who writes policy) and the kernel (which enfo
 ## Goals
 
 1. **Reviewable in a pull request.** A non-Python reader can understand what a policy does from the YAML alone.
-2. **Lintable and testable.** `gazelle policy lint` catches mistakes; `gazelle policy test fixtures/` proves behavior against examples.
+2. **Lintable and testable.** `lynx policy lint` catches mistakes; `lynx policy test fixtures/` proves behavior against examples.
 3. **Pinned per task.** A task created today is evaluated against today's policy bundle, even if the file changes tomorrow.
 4. **Deterministic.** No network, no clocks, no randomness inside the PDP. Same input → same Decision, always.
 5. **Fast.** Sub-millisecond evaluation per request, even with hundreds of rules.
@@ -158,7 +158,7 @@ For predicates YAML can't easily express — path extraction, structural pattern
 
 ```python
 # policy_rules.py
-from gazelle import policy
+from lynx import policy
 
 @policy.rule(id="block-paths-outside-workspace", priority=10)
 def block_paths_outside_workspace(req, ctx):
@@ -258,7 +258,7 @@ Checks:
 - Approvers referenced but undefined in the principals file
 
 ```
-$ gazelle policy lint policy.yaml
+$ lynx policy lint policy.yaml
 ✔ 14 rules, 6 predicates loaded
 ✔ All regexes valid
 ⚠ Rule `allow-curl-localhost` is unreachable (rule `deny-curl` at line 12 matches first)
@@ -290,7 +290,7 @@ Fixtures live alongside the policy and are run by the linter:
 ```
 
 ```
-$ gazelle policy test fixtures/
+$ lynx policy test fixtures/
 ✔ 23/23 fixtures passed
 ```
 

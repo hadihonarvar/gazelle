@@ -1,11 +1,11 @@
 # benchmarks/
 
-How much overhead does Gazelle add to an agent? Two benchmarks, both runnable in seconds.
+How much overhead does Lynx add to an agent? Two benchmarks, both runnable in seconds.
 
 | Benchmark | What it measures | Why it matters |
 |-----------|-----------------|----------------|
 | **`bench_pdp.py`** | Policy Decision Point latency vs rule count | The PDP runs once per agent step. If it's slow, every agent step is slow. |
-| **`bench_end_to_end.py`** | Full runtime overhead per step (vs. running the same tool naked) | The honest "what's the cost of using Gazelle" number. |
+| **`bench_end_to_end.py`** | Full runtime overhead per step (vs. running the same tool naked) | The honest "what's the cost of using Lynx" number. |
 
 ## Run them
 
@@ -36,7 +36,7 @@ How much overhead does Gazelle add to an agent? Two benchmarks, both runnable in
 
 ```
        naked          3.20ms        0.064ms/step
-         gazelle    160.50ms        3.210ms/step
+         lynx    160.50ms        3.210ms/step
     overhead                        3.146ms/step
 ```
 
@@ -53,4 +53,4 @@ Both benchmarks are intentionally small — readable in one screen — so anyone
 
 ## Adding a new benchmark
 
-Same structure: stand-alone Python file, prints a table, runs in <30 seconds, uses only `time.perf_counter()` plus the standard library + Gazelle.
+Same structure: stand-alone Python file, prints a table, runs in <30 seconds, uses only `time.perf_counter()` plus the standard library + Lynx.

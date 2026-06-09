@@ -22,8 +22,8 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from gazelle import FinalAnswer, Message, ToolCall, runtime, tool
-from gazelle.core.mediator import get_registry
+from lynx import FinalAnswer, Message, ToolCall, runtime, tool
+from lynx.core.mediator import get_registry
 
 
 # ---------------------------------------------------------------------------
@@ -206,8 +206,8 @@ async def main() -> None:
 
     print()
     print("Verify the audit chain:")
-    print(f"  gazelle trace {result.run_id}")
-    print(f"  gazelle audit verify {result.run_id}")
+    print(f"  lynx trace {result.run_id}")
+    print(f"  lynx audit verify {result.run_id}")
 
 
 if __name__ == "__main__":

@@ -15,13 +15,13 @@ A framework-agnostic Python runtime that sits between any agent (LangGraph, Crew
 A solo developer can:
 
 ```bash
-$ pip install gazelle
-$ gazelle init
+$ pip install lynx-agent
+$ lynx init
 $ python my_agent.py "clean up the cache folder"
 [runtime] action shell("rm -rf /") → DENIED (irreversible, blast_radius=root)
 [runtime] action shell("rm -rf ~/.cache") → DRY-RUN: 412 files
 [runtime] approve? [y/N] y
-[runtime] applied. task complete. trace: gazelle trace R-7f3a
+[runtime] applied. task complete. trace: lynx trace R-7f3a
 ```
 
 …in under 5 minutes from install to "agent saved me from a `rm -rf /`."
@@ -55,13 +55,13 @@ If that demo lands, the project is alive.
 ### M2 — Walking Skeleton (Day 1-2)
 End-to-end minimum: `@tool` → propose → YAML allow/deny PDP → execute → SQLite journal → CLI `run` + `trace`. One example agent that proves the loop.
 
-**Done when:** `gazelle run examples/hello.py` writes a checkpoint per step and a CLI `trace` command can replay it.
+**Done when:** `lynx run examples/hello.py` writes a checkpoint per step and a CLI `trace` command can replay it.
 
 ### M3 — Approvals + Audit Chain (Day 2-3)
 - `approve_required` verdict
-- CLI `gazelle approve <request-id>`
+- CLI `lynx approve <request-id>`
 - Hash-chained jsonl audit log
-- `gazelle audit verify <run-id>`
+- `lynx audit verify <run-id>`
 
 **Done when:** A denied action prompts for approval, and `audit verify` detects tampering if you manually edit the log.
 

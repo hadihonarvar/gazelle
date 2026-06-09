@@ -1,12 +1,12 @@
-# Contributing to Gazelle
+# Contributing to Lynx
 
 Thanks for considering a contribution. This document covers what to do and what to expect.
 
 ## Quick setup
 
 ```bash
-git clone https://github.com/<your-fork>/gazelle
-cd gazelle
+git clone https://github.com/<your-fork>/lynx
+cd lynx
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
@@ -40,14 +40,14 @@ These are load-bearing — please don't break them:
 
 The smallest viable PR for a new framework adapter:
 
-1. `src/gazelle/adapters/<framework>.py` — a class that satisfies the `Agent` protocol (`async def step(conversation) -> ToolCall | FinalAnswer`).
+1. `src/lynx/adapters/<framework>.py` — a class that satisfies the `Agent` protocol (`async def step(conversation) -> ToolCall | FinalAnswer`).
 2. `tests/test_adapter_<framework>.py` — mock the framework's client; assert the message translation + tool-call extraction.
 3. `examples/<framework>_demo.py` — a runnable demo using the new adapter.
 4. Update the README's adapter list.
 
 ## Adding a new shadow
 
-`src/gazelle/shadows/<name>.py` — one or more `async def name_shadow(*args) -> dict` functions that return previews without side effects.
+`src/lynx/shadows/<name>.py` — one or more `async def name_shadow(*args) -> dict` functions that return previews without side effects.
 
 ## Coding style
 
@@ -72,7 +72,7 @@ Conventional Commits style:
 Maintainers only:
 
 1. Update `CHANGELOG.md`
-2. Bump version in `pyproject.toml` and `src/gazelle/__init__.py`
+2. Bump version in `pyproject.toml` and `src/lynx/__init__.py`
 3. `git tag vX.Y.Z` + push tag
 4. GitHub Actions handles wheel build + PyPI publish via OIDC trusted publishing
 

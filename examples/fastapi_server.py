@@ -1,6 +1,6 @@
 """FastAPI integration example.
 
-A small refund-service HTTP API backed by a Gazelle-gated agent.
+A small refund-service HTTP API backed by a Lynx-gated agent.
 
 Endpoints:
     POST /agent/run                  — synchronous: returns when the run finishes (or pauses for approval)
@@ -36,10 +36,10 @@ except ImportError as exc:
         "This example requires fastapi + uvicorn: pip install fastapi uvicorn"
     ) from exc
 
-from gazelle import FinalAnswer, Message, Runtime, ToolCall, tool
-from gazelle.core.mediator import get_registry
-from gazelle.policy import load_policy_file
-from gazelle.stores.sqlite import SQLiteStore
+from lynx import FinalAnswer, Message, Runtime, ToolCall, tool
+from lynx.core.mediator import get_registry
+from lynx.policy import load_policy_file
+from lynx.stores.sqlite import SQLiteStore
 
 
 # ---------------------------------------------------------------------------
@@ -98,14 +98,14 @@ class ScriptedRefundAgent:
 async def lifespan(app: FastAPI):
     policy_path = Path(__file__).resolve().parent / "refund-policy.yaml"
     app.state.runtime = Runtime(
-        store=SQLiteStore(Path(__file__).resolve().parent.parent / ".gazelle" / "fastapi.db"),
+        store=SQLiteStore(Path(__file__).resolve().parent.parent / ".lynx" / "fastapi.db"),
         policy=load_policy_file(policy_path),
     )
     yield
     app.state.runtime.store.close()
 
 
-app = FastAPI(lifespan=lifespan, title="Gazelle FastAPI demo")
+app = FastAPI(lifespan=lifespan, title="Lynx FastAPI demo")
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +200,7 @@ async def deny(approval_id: str, body: ApprovalAction) -> dict[str, Any]:
 @app.get("/")
 async def root() -> dict[str, Any]:
     return {
-        "service": "Gazelle FastAPI demo",
+        "service": "Lynx FastAPI demo",
         "endpoints": [
             "POST /agent/run",
             "GET  /agent/runs/{run_id}",

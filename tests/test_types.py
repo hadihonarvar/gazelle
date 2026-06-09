@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from gazelle.core.types import (
+from lynx.core.types import (
     AuditEvent,
     canonical_json,
     compute_idempotency_key,

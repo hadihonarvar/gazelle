@@ -16,11 +16,11 @@ The surface area users actually touch. Goal: a developer can be productive in 5 
 ## Public Python API
 
 ```python
-# gazelle/__init__.py
-from gazelle.runtime import Runtime, runtime         # global singleton + class
-from gazelle.decorators import tool, shadow
-from gazelle.policy import deny, allow, dry_run, approve_required, transform, rule
-from gazelle.types import (
+# lynx/__init__.py
+from lynx.runtime import Runtime, runtime         # global singleton + class
+from lynx.decorators import tool, shadow
+from lynx.policy import deny, allow, dry_run, approve_required, transform, rule
+from lynx.types import (
     Task, Run, Step,
     ActionRequest, Decision, ActionResult, AuditEvent,
     Principal, Budget, ToolMetadata, ExecutionContext,
@@ -31,7 +31,7 @@ from gazelle.types import (
 ### `@tool` — declare a callable as agent-invocable
 
 ```python
-from gazelle import tool
+from lynx import tool
 
 @tool(
     cost="low",
@@ -161,29 +161,29 @@ class SimpleAgent:
         return FinalAnswer(text=response.content)
 ```
 
-Adapters for LangGraph, CrewAI, OpenAI Agents SDK live in `gazelle/adapters/` and conform to the same `Agent` protocol.
+Adapters for LangGraph, CrewAI, OpenAI Agents SDK live in `lynx/adapters/` and conform to the same `Agent` protocol.
 
 ---
 
 ## CLI
 
-Installed as `gazelle` on PATH.
+Installed as `lynx` on PATH.
 
 ### Project setup
 
 ```
-gazelle init [--dir .]
+lynx init [--dir .]
 ```
 Creates:
 - `policy.yaml` with safe defaults
-- `.gazelle/state.db` (SQLite)
-- `.gazelle/audit/` (jsonl directory)
-- `gazelle.toml` config file
+- `.lynx/state.db` (SQLite)
+- `.lynx/audit/` (jsonl directory)
+- `lynx.toml` config file
 
 ### Running
 
 ```
-gazelle run <python-file> [--task "..."] [--policy ./policy.yaml] [--env dev]
+lynx run <python-file> [--task "..."] [--policy ./policy.yaml] [--env dev]
 ```
 
 Equivalent to importing the file, finding the `agent` and calling `runtime.run(agent, task=...)`.
@@ -191,45 +191,45 @@ Equivalent to importing the file, finding the `agent` and calling `runtime.run(a
 ### Inspecting
 
 ```
-gazelle ps                          # active + recent runs
-gazelle show <run-id>               # full run details
-gazelle trace <run-id>              # step-by-step trace
-gazelle trace <run-id> --tail       # follow live
-gazelle audit verify <run-id>       # check hash chain
-gazelle audit export <run-id> > audit.jsonl
+lynx ps                          # active + recent runs
+lynx show <run-id>               # full run details
+lynx trace <run-id>              # step-by-step trace
+lynx trace <run-id> --tail       # follow live
+lynx audit verify <run-id>       # check hash chain
+lynx audit export <run-id> > audit.jsonl
 ```
 
 ### Approvals
 
 ```
-gazelle approvals                   # list pending
-gazelle approve <request-id> [--reason ...]
-gazelle deny <request-id> [--reason ...]
+lynx approvals                   # list pending
+lynx approve <request-id> [--reason ...]
+lynx deny <request-id> [--reason ...]
 ```
 
 ### Replay
 
 ```
-gazelle replay <run-id>             # re-run from scratch
-gazelle replay <run-id> --from-step 8 --edit args.cmd='ls'
-gazelle replay <run-id> --inspect   # no execution, just walk
+lynx replay <run-id>             # re-run from scratch
+lynx replay <run-id> --from-step 8 --edit args.cmd='ls'
+lynx replay <run-id> --inspect   # no execution, just walk
 ```
 
 ### Policy
 
 ```
-gazelle policy lint [policy.yaml]
-gazelle policy test [fixtures/]
-gazelle policy show [policy.yaml]   # compiled bundle, pretty-printed
-gazelle policy bundle-id [policy.yaml]   # prints the content-addressed ID
+lynx policy lint [policy.yaml]
+lynx policy test [fixtures/]
+lynx policy show [policy.yaml]   # compiled bundle, pretty-printed
+lynx policy bundle-id [policy.yaml]   # prints the content-addressed ID
 ```
 
 ### Debug
 
 ```
-gazelle version
-gazelle config              # effective config (env vars overlaid on toml)
-gazelle db migrate          # apply schema migrations
+lynx version
+lynx config              # effective config (env vars overlaid on toml)
+lynx db migrate          # apply schema migrations
 ```
 
 ---
@@ -246,19 +246,19 @@ gazelle db migrate          # apply schema migrations
 | 5 | Crash / unhandled exception |
 | 6 | Audit chain integrity failure |
 
-CI-friendly: `gazelle run` returns 2 if any action was denied; 3 if budget was hit; 0 only on clean success.
+CI-friendly: `lynx run` returns 2 if any action was denied; 3 if budget was hit; 0 only on clean success.
 
 ---
 
-## Config file (`gazelle.toml`)
+## Config file (`lynx.toml`)
 
 ```toml
 [storage]
 type = "sqlite"
-path = ".gazelle/state.db"
+path = ".lynx/state.db"
 
 [audit]
-path = ".gazelle/audit/"
+path = ".lynx/audit/"
 signing = "none"           # or "hsm" later
 
 [policy]

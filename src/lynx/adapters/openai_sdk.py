@@ -1,11 +1,11 @@
 """OpenAI GPT adapter.
 
-Wraps the OpenAI Chat Completions API into the Gazelle Agent protocol.
+Wraps the OpenAI Chat Completions API into the Lynx Agent protocol.
 
 Example::
 
-    from gazelle import tool, runtime
-    from gazelle.adapters.openai_sdk import OpenAIAgent
+    from lynx import tool, runtime
+    from lynx.adapters.openai_sdk import OpenAIAgent
 
     @tool(reversible=False, scope=["filesystem:write"])
     async def shell(cmd: str) -> str: ...
@@ -13,7 +13,7 @@ Example::
     agent = OpenAIAgent(model="gpt-5", system="You are a careful sysadmin.")
     await runtime.run(agent, task="clean up /tmp", policy="policy.yaml")
 
-Requires `pip install gazelle[openai]` (or `pip install openai`).
+Requires `pip install lynx-agent[openai]` (or `pip install openai`).
 """
 
 from __future__ import annotations
@@ -21,9 +21,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from gazelle.adapters.anthropic_sdk import _signature_to_json_schema
-from gazelle.core.mediator import get_registry
-from gazelle.sdk import FinalAnswer, Message, ToolCall
+from lynx.adapters.anthropic_sdk import _signature_to_json_schema
+from lynx.core.mediator import get_registry
+from lynx.sdk import FinalAnswer, Message, ToolCall
 
 
 class OpenAIAgent:

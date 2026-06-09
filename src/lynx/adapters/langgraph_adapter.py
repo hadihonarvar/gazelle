@@ -1,16 +1,16 @@
 """LangGraph adapter.
 
 Wraps a compiled LangGraph state graph as an Agent. The graph's ToolNode
-calls are intercepted; each tool invocation becomes a gazelle ActionRequest
+calls are intercepted; each tool invocation becomes a lynx ActionRequest
 that flows through the policy + audit chain.
 
-Requires `pip install gazelle[langgraph]`.
+Requires `pip install lynx-agent[langgraph]`.
 
 Usage::
 
     from langgraph.graph import StateGraph
-    from gazelle.adapters.langgraph_adapter import LangGraphAgent
-    from gazelle import runtime
+    from lynx.adapters.langgraph_adapter import LangGraphAgent
+    from lynx import runtime
 
     graph = StateGraph(...)
     # ... compile graph ...
@@ -22,14 +22,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from gazelle.sdk import FinalAnswer, Message, ToolCall
+from lynx.sdk import FinalAnswer, Message, ToolCall
 
 
 class LangGraphAgent:
     """Adapter for compiled LangGraph state graphs.
 
     Operates by stepping the graph one node at a time. When the graph hits
-    a ToolNode, we extract the ToolCall and surrender control to Gazelle's
+    a ToolNode, we extract the ToolCall and surrender control to Lynx's
     mediator; the result is fed back into the graph state on resume.
     """
 
@@ -45,7 +45,7 @@ class LangGraphAgent:
         self._state: dict[str, Any] = {"messages": []}
 
     async def step(self, conversation: list[Message]):
-        # Translate the gazelle conversation into LangGraph's message dict shape.
+        # Translate the lynx conversation into LangGraph's message dict shape.
         self._state["messages"] = _to_langchain_messages(conversation)
 
         # Step the graph until it either proposes a tool call or finishes.

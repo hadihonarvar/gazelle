@@ -18,7 +18,7 @@ pytestmark = pytest.mark.skipif(
     reason="Subprocess sandbox uses POSIX resource limits; Windows port deferred to v0.8.",
 )
 
-from gazelle.sandbox import SandboxError, run_in_subprocess  # noqa: E402
+from lynx.sandbox import SandboxError, run_in_subprocess  # noqa: E402
 
 # Subprocess sandboxing depends on the function being picklable. Module-level
 # functions work; lambdas and locally-defined functions do not. Define here.

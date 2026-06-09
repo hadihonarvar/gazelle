@@ -1,6 +1,6 @@
 ---
 name: Question
-about: Ask a question about Gazelle
+about: Ask a question about Lynx
 title: "[?] "
 labels: question
 ---

@@ -19,15 +19,15 @@ from typing import Any
 
 import msgpack
 
-from gazelle.core.mediator import (
+from lynx.core.mediator import (
     ApprovalPending,
     ToolDenied,
     get_broker,
     get_registry,
     mediate,
 )
-from gazelle.core.policy import PolicyBundle, evaluate
-from gazelle.core.types import (
+from lynx.core.policy import PolicyBundle, evaluate
+from lynx.core.types import (
     ActionRequest,
     ActionResult,
     AuditEvent,
@@ -43,8 +43,8 @@ from gazelle.core.types import (
     new_id,
     now_utc,
 )
-from gazelle.sdk import Agent, FinalAnswer, Message, ToolCall
-from gazelle.stores.sqlite import SQLiteStore
+from lynx.sdk import Agent, FinalAnswer, Message, ToolCall
+from lynx.stores.sqlite import SQLiteStore
 
 
 @dataclass
@@ -113,8 +113,8 @@ class Scheduler:
         Reads approval state from the store (not the in-memory broker), so
         resume works correctly across process restarts.
         """
-        from gazelle.core.mediator import mediate
-        from gazelle.core.policy import allow as policy_allow
+        from lynx.core.mediator import mediate
+        from lynx.core.policy import allow as policy_allow
 
         run = self.store.get_run(run_id)
         if run is None:
@@ -162,7 +162,7 @@ class Scheduler:
                         {"seq": paused_seq, "ok": result.ok, "via": "approval"},
                     )
                 except Exception as exc:
-                    from gazelle.core.types import ActionResult
+                    from lynx.core.types import ActionResult
 
                     result = ActionResult(ok=False, error=f"{type(exc).__name__}: {exc}")
                     self._audit(

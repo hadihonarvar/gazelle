@@ -19,7 +19,7 @@ import asyncio
 import os
 from pathlib import Path
 
-from gazelle import FinalAnswer, Message, ToolCall, runtime, tool
+from lynx import FinalAnswer, Message, ToolCall, runtime, tool
 
 # ---------------------------------------------------------------------------
 # Fake database (in real life: Stripe + your CRM)
@@ -109,13 +109,13 @@ async def run_one(customer_id: str) -> None:
     print(f"  run_id:  {result.run_id}")
     print(f"  status:  {result.status}")
     if result.paused_approval_id:
-        print(f"  PAUSED:  gazelle approve {result.paused_approval_id}")
+        print(f"  PAUSED:  lynx approve {result.paused_approval_id}")
     print(f"  final:   {result.final_answer}")
-    print(f"  trace:   gazelle trace {result.run_id}")
+    print(f"  trace:   lynx trace {result.run_id}")
 
 
 async def main() -> None:
-    print("Gazelle refund-agent demo. No real money moves.")
+    print("Lynx refund-agent demo. No real money moves.")
     if os.getenv("ANTHROPIC_API_KEY"):
         print("(ANTHROPIC_API_KEY found — for a real LLM demo, swap in ClaudeAgent.)")
     for cid in ("C-789", "C-456", "C-123"):

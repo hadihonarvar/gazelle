@@ -1,6 +1,6 @@
 # Concepts
 
-Plain-language definitions of every Gazelle term that appears in policies, code, or the CLI. Read this once and the rest of the docs make sense.
+Plain-language definitions of every Lynx term that appears in policies, code, or the CLI. Read this once and the rest of the docs make sense.
 
 ---
 
@@ -99,7 +99,7 @@ The pure function that turns `(PolicyBundle, ActionRequest, ExecutionContext)` i
 
 One entry in the append-only, hash-chained audit log. Identified by `sha256(prev || canonical_json(body))`. Includes events like `run.started`, `step.proposed`, `policy.evaluated`, `action.completed`, `approval.granted`, `run.succeeded`.
 
-You can verify the chain anytime: `gazelle audit verify <run-id>`. Tampering — body changes, missing events, hash mismatches — is detectable.
+You can verify the chain anytime: `lynx audit verify <run-id>`. Tampering — body changes, missing events, hash mismatches — is detectable.
 
 ## Approval
 
@@ -109,7 +109,7 @@ When the policy returns `approve_required`, the kernel:
 2. Pauses the run
 3. Returns control to the caller with a `paused_approval_id`
 
-A human then calls `gazelle approve <approval-id>` (or hits a webhook). When the agent is re-invoked with `runtime.resume(run_id)`, the approved action executes and the loop continues.
+A human then calls `lynx approve <approval-id>` (or hits a webhook). When the agent is re-invoked with `runtime.resume(run_id)`, the approved action executes and the loop continues.
 
 ## Sandbox
 
@@ -117,7 +117,7 @@ Optional isolation for individual tools. Today: `none` (in-process) or `subproce
 
 ## Store
 
-Where Gazelle persists Tasks, Runs, Steps, AuditEvents, and Approvals. SQLite by default (zero infrastructure). Postgres for production. The interface is the same; swap via config.
+Where Lynx persists Tasks, Runs, Steps, AuditEvents, and Approvals. SQLite by default (zero infrastructure). Postgres for production. The interface is the same; swap via config.
 
 ## Agent
 

@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from gazelle.core.types import (
+from lynx.core.types import (
     GENESIS_HASH,
     ActionRequest,
     ActionResult,
@@ -123,7 +123,7 @@ class SQLiteStore:
     Thread-safe via a connection-per-call pattern with WAL mode.
     """
 
-    def __init__(self, path: str | Path = ".gazelle/state.db") -> None:
+    def __init__(self, path: str | Path = ".lynx/state.db") -> None:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
@@ -347,7 +347,7 @@ class SQLiteStore:
     # -----------------------------------------------------------------------
 
     def save_approval(self, approval: Any) -> None:
-        from gazelle.core.mediator import ApprovalRequest
+        from lynx.core.mediator import ApprovalRequest
 
         a: ApprovalRequest = approval
         with self._conn:

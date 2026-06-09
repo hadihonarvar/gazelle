@@ -1,6 +1,6 @@
 # Policy for the file_janitor demo.
 #
-# Demonstrates four of the five Gazelle verdicts:
+# Demonstrates four of the five Lynx verdicts:
 #   ALLOW   — read-only tools
 #   DENY    — writes outside the workspace, or matching dangerous patterns
 #   DRY_RUN — writes inside the workspace get a preview first

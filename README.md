@@ -1,4 +1,4 @@
-# Gazelle
+# Lynx
 
 **Make any AI agent safe and reliable enough to put in production.** Open-source Python runtime that wraps any agent (LangGraph, CrewAI, OpenAI Agents SDK, Anthropic Agent SDK, or a plain Python loop) and gives you three things every team currently rebuilds from scratch:
 
@@ -19,21 +19,21 @@ Agent reliability is the #1 unmet need in 2026 (Gartner: 40% of agentic AI proje
 - Meta's AI safety director was unable to stop her own agent from **deleting her inbox**.
 - An n8n v2.4.7→v2.6.3 upgrade silently **broke function-calling schemas** across the user base.
 
-Every team building agents reinvents the same scaffolding: retry logic, dry-runs, approval flows, audit trails. **Gazelle is the missing layer.**
+Every team building agents reinvents the same scaffolding: retry logic, dry-runs, approval flows, audit trails. **Lynx is the missing layer.**
 
 ---
 
 ## Quickstart (under 2 minutes)
 
 ```bash
-pip install gazelle
-gazelle init
+pip install lynx-agent
+lynx init
 ```
 
 ```python
 # my_agent.py
 import asyncio
-from gazelle import tool, runtime, ToolCall, FinalAnswer, Message
+from lynx import tool, runtime, ToolCall, FinalAnswer, Message
 
 @tool(cost="low", reversible=False, scope=["filesystem:write"])
 async def shell(cmd: str) -> str:
@@ -66,9 +66,9 @@ asyncio.run(main())
 
 ```bash
 $ python my_agent.py
-$ gazelle ps                    # list runs
-$ gazelle trace <run_id>        # see every step + policy decision
-$ gazelle audit verify <run_id> # verify the hash chain
+$ lynx ps                    # list runs
+$ lynx trace <run_id>        # see every step + policy decision
+$ lynx audit verify <run_id> # verify the hash chain
 ```
 
 The default policy will **deny** the `rm -rf /` and feed the denial back to the agent as a tool result, so the agent can retry with something safer.
@@ -150,16 +150,16 @@ See `docs/02-policy-language.md` for the full grammar.
 ## CLI
 
 ```
-gazelle init                    # set up a project
-gazelle run <script>            # run an agent script
-gazelle ps                      # list recent runs
-gazelle trace <run-id>          # step-by-step trace
-gazelle approvals               # list pending approvals
-gazelle approve <approval-id>   # approve a pending request
-gazelle audit verify <run-id>   # verify the hash chain
-gazelle audit export <run-id>   # emit jsonl for compliance
-gazelle policy lint             # validate policy.yaml
-gazelle policy bundle-id        # content-addressed bundle ID
+lynx init                    # set up a project
+lynx run <script>            # run an agent script
+lynx ps                      # list recent runs
+lynx trace <run-id>          # step-by-step trace
+lynx approvals               # list pending approvals
+lynx approve <approval-id>   # approve a pending request
+lynx audit verify <run-id>   # verify the hash chain
+lynx audit export <run-id>   # emit jsonl for compliance
+lynx policy lint             # validate policy.yaml
+lynx policy bundle-id        # content-addressed bundle ID
 ```
 
 ---
@@ -167,13 +167,13 @@ gazelle policy bundle-id        # content-addressed bundle ID
 ## Repo layout
 
 ```
-gazelle/
+lynx/
 ├── docs/
 │   ├── 00-execution-plan.md      ← read first
 │   ├── 01-data-model.md
 │   ├── 02-policy-language.md
 │   └── 03-sdk-and-cli.md
-├── src/gazelle/
+├── src/lynx/
 │   ├── core/                     ← pure kernel, no I/O
 │   │   ├── types.py
 │   │   ├── policy.py             ← PDP
@@ -216,7 +216,7 @@ See `docs/00-execution-plan.md` for the week-by-week plan.
 | End-to-end overhead per step | ~3 ms (SQLite-bound) |
 | Test suite | 57 tests in 1.1 s |
 
-For real agents where each step is a 500 ms – 5 s LLM call, Gazelle's overhead is under 1%. Reproducible numbers in [`benchmarks/`](benchmarks/README.md).
+For real agents where each step is a 500 ms – 5 s LLM call, Lynx's overhead is under 1%. Reproducible numbers in [`benchmarks/`](benchmarks/README.md).
 
 ---
 
@@ -226,7 +226,7 @@ Start here if you're new:
 
 | Doc | What it answers |
 |-----|----------------|
-| [Why Gazelle](docs/why-gazelle.md) | When should I use this? When shouldn't I? |
+| [Why Lynx](docs/why-lynx.md) | When should I use this? When shouldn't I? |
 | [Getting started](docs/getting-started.md) | 5-minute walkthrough from install to first denial |
 | [Concepts](docs/concepts.md) | Vocabulary: Tool, Policy, Verdict, Run, AuditEvent |
 | [Policy cookbook](docs/cookbook.md) | Copy-pasteable rules for common patterns |

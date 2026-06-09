@@ -6,15 +6,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from gazelle import tool
-from gazelle.adapters.anthropic_sdk import (
+from lynx import tool
+from lynx.adapters.anthropic_sdk import (
     ClaudeAgent,
     _signature_to_json_schema,
     _to_anthropic_messages,
 )
-from gazelle.adapters.openai_sdk import OpenAIAgent, _to_openai_messages
-from gazelle.core.mediator import get_registry
-from gazelle.sdk import FinalAnswer, Message, ToolCall
+from lynx.adapters.openai_sdk import OpenAIAgent, _to_openai_messages
+from lynx.core.mediator import get_registry
+from lynx.sdk import FinalAnswer, Message, ToolCall
 
 
 @pytest.fixture

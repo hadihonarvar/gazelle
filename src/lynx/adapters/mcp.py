@@ -1,15 +1,15 @@
 """MCP (Model Context Protocol) universal adapter.
 
-Auto-discovers tools from an MCP server and registers them as Gazelle
+Auto-discovers tools from an MCP server and registers them as Lynx
 @tool functions. Once registered, any agent can call them through the
-normal Gazelle mediator + policy stack.
+normal Lynx mediator + policy stack.
 
-Requires `pip install gazelle[mcp]` (or `pip install mcp`).
+Requires `pip install lynx-agent[mcp]` (or `pip install mcp`).
 
 Usage::
 
-    from gazelle.adapters.mcp import register_mcp_server
-    from gazelle import runtime
+    from lynx.adapters.mcp import register_mcp_server
+    from lynx import runtime
 
     # Connect to an MCP server (stdio, SSE, or HTTP) and register its tools.
     await register_mcp_server("python -m my_mcp_server")
@@ -19,8 +19,8 @@ Usage::
 
 from __future__ import annotations
 
-from gazelle.core.mediator import RegisteredTool, get_registry
-from gazelle.core.types import ToolMetadata
+from lynx.core.mediator import RegisteredTool, get_registry
+from lynx.core.types import ToolMetadata
 
 
 async def register_mcp_server(
@@ -30,7 +30,7 @@ async def register_mcp_server(
     default_reversible: bool = False,
     default_scope: tuple[str, ...] = ("mcp:tool",),
 ) -> list[str]:
-    """Discover tools from an MCP server and register them with Gazelle.
+    """Discover tools from an MCP server and register them with Lynx.
 
     Returns the list of tool names registered. Each MCP tool's input schema
     is reflected into the JSON schema returned to upstream agents.

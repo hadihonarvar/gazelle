@@ -1,4 +1,4 @@
-"""Gazelle CLI.
+"""Lynx CLI.
 
 Mirrors the public Python API. Anything you can do in code, you can do here.
 """
@@ -13,9 +13,9 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from gazelle import __version__
-from gazelle.policy import load_policy_file
-from gazelle.runtime import runtime as default_runtime
+from lynx import __version__
+from lynx.policy import load_policy_file
+from lynx.runtime import runtime as default_runtime
 
 console = Console()
 
@@ -24,9 +24,9 @@ console = Console()
 
 
 @click.group()
-@click.version_option(__version__, prog_name="gazelle")
+@click.version_option(__version__, prog_name="lynx")
 def cli() -> None:
-    """Gazelle: policy-gated, durable, audited execution for AI agents."""
+    """Lynx: policy-gated, durable, audited execution for AI agents."""
 
 
 # ---------------------------------------------------------------------------
@@ -67,10 +67,10 @@ rules:
 @cli.command()
 @click.option("--dir", "directory", default=".", help="Project directory")
 def init(directory: str) -> None:
-    """Create policy.yaml, gazelle.toml, and .gazelle/ in the given directory."""
+    """Create policy.yaml, lynx.toml, and .lynx/ in the given directory."""
     d = Path(directory).resolve()
-    (d / ".gazelle").mkdir(exist_ok=True)
-    (d / ".gazelle" / "audit").mkdir(exist_ok=True)
+    (d / ".lynx").mkdir(exist_ok=True)
+    (d / ".lynx" / "audit").mkdir(exist_ok=True)
 
     policy_path = d / "policy.yaml"
     if not policy_path.exists():
@@ -79,12 +79,12 @@ def init(directory: str) -> None:
     else:
         console.print(f"[yellow]={policy_path} already exists, skipping[/]")
 
-    toml_path = d / "gazelle.toml"
+    toml_path = d / "lynx.toml"
     if not toml_path.exists():
         toml_path.write_text(
             "[storage]\n"
             'type = "sqlite"\n'
-            'path = ".gazelle/state.db"\n\n'
+            'path = ".lynx/state.db"\n\n'
             "[policy]\n"
             'path = "./policy.yaml"\n\n'
             "[runtime]\n"
@@ -93,7 +93,7 @@ def init(directory: str) -> None:
         )
         console.print(f"[green]✔[/] wrote {toml_path}")
 
-    console.print(f"[green]✔[/] initialized gazelle in {d}")
+    console.print(f"[green]✔[/] initialized lynx in {d}")
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +141,7 @@ def run(script: str, task: str | None, policy_path: str, env: str) -> None:
         console.print(f"[bold]Final:[/] {result.final_answer}")
     if result.paused_approval_id:
         console.print(
-            f"[yellow]Paused for approval:[/] gazelle approve {result.paused_approval_id}"
+            f"[yellow]Paused for approval:[/] lynx approve {result.paused_approval_id}"
         )
     if result.error:
         console.print(f"[red]Error:[/] {result.error}")
@@ -180,7 +180,7 @@ def resume(run_id: str, script: str, policy_path: str) -> None:
         else:
             console.print(
                 "[red]✘[/] script must define `agent` (or run from the original "
-                "main()'s context) — `gazelle resume` needs to know what agent to use."
+                "main()'s context) — `lynx resume` needs to know what agent to use."
             )
             raise SystemExit(1)
 
@@ -190,7 +190,7 @@ def resume(run_id: str, script: str, policy_path: str) -> None:
     if result.final_answer:
         console.print(f"[bold]Final:[/] {result.final_answer}")
     if result.paused_approval_id:
-        console.print(f"[yellow]Paused again at:[/] gazelle approve {result.paused_approval_id}")
+        console.print(f"[yellow]Paused again at:[/] lynx approve {result.paused_approval_id}")
     if result.error:
         console.print(f"[red]Error:[/] {result.error}")
         raise SystemExit(2)

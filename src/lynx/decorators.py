@@ -7,8 +7,8 @@ import inspect
 from collections.abc import Callable, Coroutine
 from typing import Any, Literal
 
-from gazelle.core.mediator import RegisteredTool, get_registry
-from gazelle.core.types import ToolMetadata
+from lynx.core.mediator import RegisteredTool, get_registry
+from lynx.core.types import ToolMetadata
 
 
 def tool(

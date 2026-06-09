@@ -1,15 +1,15 @@
 """CrewAI adapter.
 
-Wraps a CrewAI Crew as a Gazelle Agent. Each Crew tool invocation is
-intercepted and routed through Gazelle's mediator.
+Wraps a CrewAI Crew as a Lynx Agent. Each Crew tool invocation is
+intercepted and routed through Lynx's mediator.
 
-Requires `pip install gazelle[crewai]`.
+Requires `pip install lynx-agent[crewai]`.
 
 Usage::
 
     from crewai import Agent as CrewAgent, Crew, Task as CrewTask
-    from gazelle.adapters.crewai_adapter import CrewAIAgent
-    from gazelle import runtime
+    from lynx.adapters.crewai_adapter import CrewAIAgent
+    from lynx import runtime
 
     crew = Crew(agents=[...], tasks=[...])
     agent = CrewAIAgent(crew=crew)
@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from gazelle.sdk import FinalAnswer, Message, ToolCall
+from lynx.sdk import FinalAnswer, Message, ToolCall
 
 
 class CrewAIAgent:
@@ -31,7 +31,7 @@ class CrewAIAgent:
         adapter wraps `crew.kickoff()` and surfaces tool invocations via a
         monkey-patched tool dispatcher.
       - For most production deployments you'll prefer registering individual
-        CrewAI tools as Gazelle @tools rather than wrapping the whole crew.
+        CrewAI tools as Lynx @tools rather than wrapping the whole crew.
     """
 
     def __init__(self, crew: Any) -> None:

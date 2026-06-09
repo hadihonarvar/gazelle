@@ -16,7 +16,7 @@ Runnable demos. Each one is self-contained: a Python script + a YAML policy.
 ```bash
 # Always run from the repo root
 pip install -e ".[dev]"
-gazelle init                    # creates default policy + state dir
+lynx init                    # creates default policy + state dir
 
 # Scripted demos (no API key needed)
 python examples/hello_agent.py
@@ -39,10 +39,10 @@ uvicorn examples.fastapi_server:app --reload
 ## After running anything
 
 ```bash
-gazelle ps                      # see the runs
-gazelle trace <run-id>          # see the step-by-step
-gazelle audit verify <run-id>   # check the hash chain
-gazelle audit export <run-id>   # compliance export (jsonl)
+lynx ps                      # see the runs
+lynx trace <run-id>          # see the step-by-step
+lynx audit verify <run-id>   # check the hash chain
+lynx audit export <run-id>   # compliance export (jsonl)
 ```
 
 ## Want to contribute another example?

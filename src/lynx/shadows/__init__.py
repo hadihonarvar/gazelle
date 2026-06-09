@@ -6,8 +6,8 @@ mediator calls a tool's shadow when the PDP returns the DRY_RUN verdict.
 
 Use these as drop-in helpers when wrapping common operations::
 
-    from gazelle import tool
-    from gazelle.shadows import shell_shadow, write_file_shadow
+    from lynx import tool
+    from lynx.shadows import shell_shadow, write_file_shadow
 
     @tool(reversible=False, scope=["compute:exec"])
     async def shell(cmd: str) -> str:
@@ -16,13 +16,13 @@ Use these as drop-in helpers when wrapping common operations::
     shell.shadow(shell_shadow)
 """
 
-from gazelle.shadows.filesystem import (
+from lynx.shadows.filesystem import (
     delete_file_shadow,
     write_file_shadow,
 )
-from gazelle.shadows.http import http_shadow
-from gazelle.shadows.shell import shell_shadow
-from gazelle.shadows.sql import sql_shadow
+from lynx.shadows.http import http_shadow
+from lynx.shadows.shell import shell_shadow
+from lynx.shadows.sql import sql_shadow
 
 __all__ = [
     "delete_file_shadow",

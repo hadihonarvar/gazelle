@@ -209,7 +209,7 @@ YAML can't easily reference dynamic context like `context.workspace`. Use a Pyth
 ```python
 # policy_rules.py
 import os
-from gazelle import policy
+from lynx import policy
 
 @policy.rule(id="block-paths-outside-workspace", priority=10)
 def block_paths_outside_workspace(req, ctx):
