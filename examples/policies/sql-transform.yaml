@@ -1,0 +1,37 @@
+# Multi-tenant SQL policy: auto-scope every mutation to the current tenant.
+
+version: 1
+defaults:
+  on_no_match: deny
+
+predicates:
+  is_destructive_sql:
+    tool: sql_exec
+    args.sql.matches: '(?i)\b(UPDATE|DELETE)\b'
+
+rules:
+  # 1. SELECT queries: allowed.
+  - id: allow-selects
+    priority: 100
+    match:
+      tool: sql_exec
+      args.sql.matches: '(?i)^\s*SELECT\b'
+    decision: allow
+
+  # 2. UPDATE/DELETE without WHERE: hard deny (would affect every tenant!)
+  - id: block-bulk-mutations
+    priority: 90
+    match:
+      tool: sql_exec
+      args.sql.matches: '(?i)^\s*(UPDATE|DELETE)\b(?!.*\bWHERE\b)'
+    decision: deny
+    reason: "DELETE / UPDATE without WHERE would touch every tenant; never allowed."
+
+  # 3. UPDATE/DELETE with WHERE: auto-add tenant_id filter.
+  - id: scope-mutations-to-tenant
+    priority: 50
+    match: is_destructive_sql
+    decision: transform
+    transform:
+      jsonpath: "$.args.sql"
+      append: " AND tenant_id = 'TENANT-ALICE'"   # in prod: from context

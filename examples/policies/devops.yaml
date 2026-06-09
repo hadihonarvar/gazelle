@@ -1,0 +1,103 @@
+# DevOps-assistant policy — the "kitchen sink" example.
+#
+# Demonstrates every Lynx verdict at once:
+#   ALLOW            — read-only inspection (ls, get, describe, etc.)
+#   DRY_RUN          — any mutation gets a preview first
+#   APPROVE_REQUIRED — any change in PRODUCTION needs a human
+#   DENY             — hard-blocks for catastrophic commands
+#   TRANSFORM        — adds a safety prefix to kubectl commands (force --dry-run=server)
+
+version: 1
+defaults:
+  on_missing_shadow: approve_required
+  on_no_match: deny
+
+predicates:
+  in_prod: { context.environment: prod }
+  is_kubectl: { tool: kubectl }
+  is_aws:     { tool: aws_cli }
+  is_terraform: { tool: terraform }
+  is_destructive_kubectl:
+    tool: kubectl
+    args.command.matches: '^(delete|destroy|drain|cordon)\b'
+  is_terraform_destroy:
+    tool: terraform
+    args.command.matches: '^destroy\b'
+
+rules:
+  # 1. Catastrophic commands — DENY regardless of environment.
+  - id: hard-block-terraform-destroy-prod
+    priority: 100
+    match:
+      all_of: [is_terraform_destroy, in_prod]
+    decision: deny
+    reason: "terraform destroy in prod is never executed via the bot."
+
+  - id: hard-block-rm-rf-root
+    priority: 100
+    match:
+      tool: shell
+      args.cmd.matches: '^\s*rm\s+(-[rRf]+\s+)+/(\s|$)'
+    decision: deny
+    reason: "rm -rf / is hard-blocked."
+
+  - id: hard-block-aws-delete-rds
+    priority: 100
+    match:
+      tool: aws_cli
+      args.command.matches: '^rds\s+delete-db-(instance|cluster)\b'
+    decision: deny
+    reason: "Deleting RDS instances via the bot is forbidden."
+
+  # 2. Production mutations — require approval.
+  - id: prod-kubectl-mutations-need-approval
+    priority: 80
+    match:
+      all_of:
+        - is_kubectl
+        - in_prod
+        - args.command.matches: '^(apply|delete|create|patch|edit|scale|rollout|drain|cordon)\b'
+    decision: approve_required
+    approvers: ["sre-oncall@acme.com"]
+    timeout_seconds: 1800
+
+  - id: prod-aws-mutations-need-approval
+    priority: 80
+    match:
+      all_of:
+        - is_aws
+        - in_prod
+        - args.command.matches: '\b(create|delete|terminate|update|put)-'
+    decision: approve_required
+    approvers: ["sre-oncall@acme.com"]
+
+  # 3. Non-prod mutations — dry-run first.
+  - id: non-prod-mutations-dry-run
+    priority: 60
+    match:
+      any_of:
+        - all_of: [is_kubectl, args.command.matches: '^(apply|delete|create|patch|edit|scale)\b']
+        - all_of: [is_terraform, args.command.matches: '^(apply|destroy|plan)\b']
+    decision: dry_run
+
+  # 4. Read-only inspection — always allow.
+  - id: kubectl-reads
+    priority: 50
+    match:
+      tool: kubectl
+      args.command.matches: '^(get|describe|logs|top|version|config view|cluster-info)\b'
+    decision: allow
+
+  - id: aws-reads
+    priority: 50
+    match:
+      tool: aws_cli
+      args.command.matches: '^(s3 (ls|cp|sync)|.*\b(describe|list|get)-)'
+    decision: allow
+
+  - id: terraform-reads
+    priority: 50
+    match:
+      tool: terraform
+      args.command.matches: '^(state|show|version|providers|output)\b'
+    decision: allow

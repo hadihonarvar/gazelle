@@ -1,4 +1,4 @@
-# Customer-support refund policy. Demonstrates the approve_required verdict.
+# Customer-support refund policy. Demonstrates multi-tier approval.
 
 version: 1
 defaults:
