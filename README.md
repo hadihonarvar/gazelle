@@ -1,292 +1,240 @@
 # Lynx
 
-**Make any AI agent safe and reliable enough to put in production.** Open-source Python runtime that wraps any agent (LangGraph, CrewAI, OpenAI Agents SDK, Anthropic Agent SDK, or a plain Python loop) and gives you three things every team currently rebuilds from scratch:
+**A stateless, type-safe policy kernel for AI agent tool calls.**
 
-1. **Policy-gated execution** — every tool call passes through a declarative YAML policy engine. Dry-run, deny, transform, or require human approval.
-2. **Durable execution** — every step is checkpointed before its side effect. Crash mid-run, resume exactly where you left off, no double-execution.
-3. **Hash-chained audit log** — content-addressed, tamper-evident, regulator-grade trail of every decision and action.
+Pure functions over immutable values. No database. No globals. No leaks. Five verdicts. Streaming events to user-owned sinks.
 
-> Think *Envoy + Temporal + OPA, but for AI agents.*
+```python
+from lynx import (
+    FinalAnswer, Message, ToolCall, ToolSet, tool,
+    compile_policy, run_agent, stdout_sink, auto_deny,
+)
 
----
+@tool(reversible=False, scope=("filesystem:write",))
+async def shell(cmd: str) -> str:
+    proc = await asyncio.create_subprocess_shell(cmd, ...)
+    return (await proc.communicate())[0].decode()
 
-## Why
+result = await run_agent(
+    my_agent,
+    task="clean up old logs",
+    tools=ToolSet.from_functions(shell),
+    policy=compile_policy(open("policy.yaml").read()),
+    sinks=(stdout_sink(),),
+    on_approval=auto_deny("no approvals configured"),
+)
+# result: { correlation_id, final_answer, error, steps_taken, bundle_id }
+# Lynx holds NOTHING. No DB. No state. No leaks.
+```
 
-Agent reliability is the #1 unmet need in 2026 (Gartner: 40% of agentic AI projects will fail). Capabilities are up, reliability is lagging. Real incidents from the last 12 months:
+## What v2 does
 
-- An AI agent **deleted a developer's entire `D:` drive** when asked to clear a cache folder.
-- An AI agent **wiped a production AWS environment**, causing a 13-hour outage.
-- Meta's AI safety director was unable to stop her own agent from **deleting her inbox**.
-- An n8n v2.4.7→v2.6.3 upgrade silently **broke function-calling schemas** across the user base.
+- **Policy-gated execution** at the tool-call boundary. Five verdicts: `allow / deny / dry_run / approve_required / transform`.
+- **Streaming events** to your sinks. We never store events — your sink can buffer, write to disk, ship to OTel, post to a webhook, whatever you choose.
+- **Pure functions everywhere.** The kernel is one function: `run_agent(agent, task, *, tools, policy, sinks, on_approval, ...)`. No `Runtime` class. No singleton.
+- **Immutable values.** Every public type is `frozen=True, slots=True`. Mutation raises at runtime; `mypy --strict` catches it at write time.
+- **No globals.** No tool registry, no broker, no module-level state. ToolSet is built explicitly at call site.
+- **Hot-reloadable policy.** Because we hold no state.
 
-Every team building agents reinvents the same scaffolding: retry logic, dry-runs, approval flows, audit trails. **Lynx is the missing layer.**
+## What v2 does NOT do
 
----
+- **No durability layer** — that's [Temporal](https://temporal.io). v2 does not survive a process restart.
+- **No audit storage** — your sink decides where events go. We never open a file.
+- **No prompt filtering** — that's [NeMo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails) or [Guardrails AI](https://github.com/guardrails-ai/guardrails).
+- **No cluster orchestration** — that's [Temporal](https://temporal.io) or [Inngest](https://www.inngest.com).
+- **No agent framework** — that's [LangGraph](https://langchain-ai.github.io/langgraph/) / [CrewAI](https://www.crewai.com); we wrap them via adapters.
 
-## Quickstart (under 2 minutes)
+## Install
+
+```bash
+pip install lynx-agent                    # core (3 deps)
+pip install lynx-agent[anthropic]         # Claude adapter
+pip install lynx-agent[openai]            # GPT adapter
+pip install lynx-agent[langgraph]
+pip install lynx-agent[crewai]
+pip install lynx-agent[mcp]
+```
+
+## Quickstart
 
 ```bash
 pip install lynx-agent
-lynx init
+lynx init           # writes one file: policy.yaml
+python examples/01_hello_allow.py
 ```
-
-```python
-# my_agent.py
-import asyncio
-from lynx import tool, runtime, ToolCall, FinalAnswer, Message
-
-@tool(cost="low", reversible=False, scope=["filesystem:write"])
-async def shell(cmd: str) -> str:
-    proc = await asyncio.create_subprocess_shell(
-        cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    out, err = await proc.communicate()
-    return (out + err).decode()
-
-@shell.shadow
-async def _shell_shadow(cmd: str) -> dict:
-    return {"would_run": cmd}
-
-class MyAgent:
-    """Replace with any LLM-backed agent."""
-    async def step(self, conversation):
-        # Pretend the LLM proposed a dangerous command
-        return ToolCall(tool="shell", args={"cmd": "rm -rf /"}, call_id="c1")
-
-async def main():
-    result = await runtime.run(
-        MyAgent(),
-        task="clean up the workspace",
-        policy="./policy.yaml",
-    )
-    print(result.status, result.final_answer)
-
-asyncio.run(main())
-```
-
-```bash
-$ python my_agent.py
-$ lynx ps                    # list runs
-$ lynx trace <run_id>        # see every step + policy decision
-$ lynx audit verify <run_id> # verify the hash chain
-```
-
-The default policy will **deny** the `rm -rf /` and feed the denial back to the agent as a tool result, so the agent can retry with something safer.
-
----
 
 ## How it works
 
 ```
-                ┌────────────────────────────────────────────────┐
-                │  Agent (LangGraph / CrewAI / SDK / any)        │
-                └──────────────────┬─────────────────────────────┘
-                                   │ proposed tool call
+                ┌────────────────────────────────────────────┐
+                │  Agent (any framework)                     │
+                └──────────────────┬─────────────────────────┘
+                                   │  ToolCall
                                    ▼
-              ╔════════════════════════════════════════════════╗
-              ║                  AGENT RUNTIME                 ║
-              ║  ┌────────────┐  ┌────────────┐  ┌──────────┐  ║
-              ║  │  Scheduler │→ │ Policy PDP │→ │ Mediator │  ║
-              ║  │ (durable)  │  │  (pure)    │  │  (PEP)   │  ║
-              ║  └────────────┘  └────────────┘  └──────────┘  ║
-              ║          ↓             ↓              ↓        ║
-              ║  ┌──────────────────────────────────────────┐  ║
-              ║  │      SQLite journal + audit chain        │  ║
-              ║  └──────────────────────────────────────────┘  ║
-              ╚════════════════════════════════════════════════╝
-                                   │ approved + recorded
+              ╔═══════════════════════════════════════════╗
+              ║  run_agent (pure function)                ║
+              ║   1. PDP evaluates → Decision             ║
+              ║   2. Mediator dispatches by verdict       ║
+              ║   3. Sinks called with each AuditEvent    ║
+              ║   4. Approval handler called sync if needed║
+              ╚═══════════════════════════════════════════╝
+                                   │ side effect
                                    ▼
-              ┌────────────────────────────────────────────────┐
-              │ Real world (shell, browser, DB, AWS, etc.)     │
-              └────────────────────────────────────────────────┘
+                ┌────────────────────────────────────────────┐
+                │  Real world                                │
+                └────────────────────────────────────────────┘
 ```
 
-Every action passes through the **Mediator**. The PDP returns one of five verdicts (`allow`, `deny`, `dry_run`, `approve_required`, `transform`). The Mediator dispatches accordingly. Before any side effect, a checkpoint is written. Every step emits a hash-chained audit event.
+Each agent step:
+1. Build `ActionRequest` from the agent's `ToolCall`
+2. `evaluate(policy, request, context)` returns a `Decision` (pure function)
+3. `mediate(request, decision, tools, on_approval)` dispatches
+4. Each step emits a few events; sinks consume them
+5. Result is appended to a new `conversation` tuple; old tuple is freed
 
----
-
-## Policy example
+## Policy YAML — unchanged from v1
 
 ```yaml
-# policy.yaml
 version: 1
 defaults:
-  on_missing_shadow: approve_required
   on_no_match: deny
+  on_missing_shadow: approve_required
 
 rules:
-  - id: read-only-allow
-    match: { declared.scope.contains_any: ["filesystem:read", "net:read"] }
-    decision: allow
-
-  - id: shell-rm-rf-root
+  - id: block-rm-rf-root
     match:
       tool: shell
       args.cmd.matches: '^\s*rm\s+(-[rRf]+\s+)+/(\s|$)'
     decision: deny
-    reason: "rm -rf / is never allowed"
+    reason: "rm -rf / is hard-blocked"
 
-  - id: prod-mutations-need-approval
+  - id: writes-need-approval
     match:
-      context.environment: prod
-      declared.scope.contains_any: ["filesystem:write", "db:write", "cloud:write"]
+      declared.scope.contains: filesystem:write
     decision: approve_required
-    approvers: ["@oncall"]
-
-  - id: irreversible-dry-run-first
-    match: { declared.reversible: false }
-    decision: dry_run
+    approvers: ["sre-oncall"]
 ```
 
-Three layers, increasing expressiveness:
-1. **YAML rules** — 80% of cases
-2. **Predicates** — reusable named patterns
-3. **Python escape hatch** — `@policy.rule` for edge cases
+Or in Python:
 
-See `docs/02-policy-language.md` for the full grammar.
+```python
+from lynx.policy import deny
 
----
+def block_paths_outside_workspace(req, ctx):
+    if req.tool != "shell":
+        return None
+    if path_escapes(req.args["cmd"], ctx.workspace):
+        return deny("path escapes workspace")
+    return None
 
-## CLI
-
-```
-lynx init                    # set up a project
-lynx run <script>            # run an agent script
-lynx ps                      # list recent runs
-lynx trace <run-id>          # step-by-step trace
-lynx approvals               # list pending approvals
-lynx approve <approval-id>   # approve a pending request
-lynx audit verify <run-id>   # verify the hash chain
-lynx audit export <run-id>   # emit jsonl for compliance
-lynx policy lint             # validate policy.yaml
-lynx policy bundle-id        # content-addressed bundle ID
+bundle = compile_policy(
+    yaml_source,
+    python_rules=(block_paths_outside_workspace,),
+)
 ```
 
----
+## Sinks — the audit replacement
 
-## Repo layout
+```python
+from lynx import stdout_sink, jsonl_sink, multi_sink
 
-```
-lynx/
-├── docs/
-│   ├── 00-execution-plan.md      ← read first
-│   ├── 01-data-model.md
-│   ├── 02-policy-language.md
-│   └── 03-sdk-and-cli.md
-├── src/lynx/
-│   ├── core/                     ← pure kernel, no I/O
-│   │   ├── types.py
-│   │   ├── policy.py             ← PDP
-│   │   ├── mediator.py           ← PEP
-│   │   └── scheduler.py          ← step loop
-│   ├── stores/                   ← pluggable I/O
-│   │   └── sqlite.py
-│   ├── cli/main.py
-│   ├── decorators.py             ← @tool, @shadow
-│   ├── policy.py                 ← top-level re-exports
-│   ├── runtime.py                ← public Runtime facade
-│   └── sdk.py                    ← Agent protocol + Message types
-├── tests/
-├── examples/                    ← 12 numbered examples + framework integrations
-│   ├── 01_hello_allow.py ... 10_devops_assistant.py
-│   ├── 11_flask_service.py
-│   ├── 12_django_service.py
-│   └── policies/                ← multi-rule YAMLs used by examples 07/08/10
-├── benchmarks/
-└── pyproject.toml
+# Pretty-print + persist to jsonl in one go
+with open("audit.jsonl", "a") as f:
+    sink = multi_sink(stdout_sink(), jsonl_sink(f))
+    await run_agent(..., sinks=(sink,))
+# File is yours. You close it. You rotate it. You ship it where you want.
 ```
 
-**Architectural rule:** `core/` has zero I/O. All I/O lives in `stores/`, `adapters/`, and `cli/`. This is why the PDP runs in microseconds, why tests are flake-free, and why upgrading from SQLite to Postgres to a gRPC sidecar is a deployment change, not a rewrite.
+Built-in sinks:
 
----
+| Sink | What it does |
+|------|-------------|
+| `stdout_sink(stream=...)` | Pretty-print events |
+| `jsonl_sink(handle)` | One JSON line per event |
+| `noop_sink()` | Discard (for tests) |
+| `multi_sink(*sinks)` | Fan out concurrently |
+| `callback_sink(fn)` | Wrap any async callable |
 
-## Roadmap
+Write your own — it's just `async def __call__(event: AuditEvent) -> None`.
 
-**Shipped in v1.0** (current release):
-- Core kernel: policy PDP, action mediator, scheduler with pre-execution checkpointing
-- All five verdicts: allow / deny / dry_run / approve_required / transform
-- Hash-chained, tamper-evident audit log with `lynx audit verify`
-- Stores: SQLite (default), Postgres (production)
-- Adapters: Anthropic Claude, OpenAI, LangGraph, CrewAI, MCP
-- Shadow library: shell, filesystem, SQL, HTTP
-- Subprocess sandbox with POSIX rlimits
-- Crash-resume + approval-resume
-- Prometheus + OpenTelemetry hooks
-- Full CLI + 12 examples + STRIDE threat model
+## Approvals — synchronous handlers
 
-**On the table for v1.x** (no firm dates):
-- `lynx replay <run-id> --from-step N --edit` for run inspection
-- Container sandbox mode (the v1.0 sandbox is POSIX-subprocess only)
-- Webhook + Slack approval transports
-- gRPC sidecar mode for non-Python apps
-- HSM-signed audit events (current chain is hash-only)
-- Control-plane / multi-tenant dashboards (probably commercial)
+```python
+from lynx import cli_prompt_approval, callback_approval, ApprovalDecision
 
----
+# Built-in: prompt on stdin
+await run_agent(..., on_approval=cli_prompt_approval())
 
-## Performance
+# Or bring your own
+async def slack_approval(req):
+    msg = await slack.post(f"Approve {req.request.tool}?")
+    button = await slack.wait_for_click(msg, timeout=3600)
+    return ApprovalDecision(granted=button == "approve", approver=button.user)
 
-| What | Number |
-|------|--------|
-| Policy evaluation (typical, ≤100 rules) | ~100 µs / call |
-| Policy evaluation (worst case, 1000 rules) | ~1 ms / call |
-| End-to-end overhead per step | ~3 ms (SQLite-bound) |
-| Test suite | 57 tests in 1.1 s |
+await run_agent(..., on_approval=callback_approval(slack_approval))
+```
 
-For real agents where each step is a 500 ms – 5 s LLM call, Lynx's overhead is under 1%. Reproducible numbers in [`benchmarks/`](benchmarks/README.md).
+The `run_agent` call blocks on the handler. No queue. No broker. No cross-process resume. Your handler decides how to wait.
 
----
+## Examples
 
-## Documentation
-
-Start here if you're new:
-
-| Doc | What it answers |
-|-----|----------------|
-| [Why Lynx](docs/why-lynx.md) | When should I use this? When shouldn't I? |
-| [Getting started](docs/getting-started.md) | 5-minute walkthrough from install to first denial |
-| [Concepts](docs/concepts.md) | Vocabulary: Tool, Policy, Verdict, Run, AuditEvent |
-| [Policy cookbook](docs/cookbook.md) | Copy-pasteable rules for common patterns |
-| [FAQ](docs/faq.md) | Common first-time questions |
-
-Reference docs:
-
-| Doc | What it covers |
-|-----|----------------|
-| [Data model](docs/01-data-model.md) | The six core types + SQLite schema |
-| [Policy language](docs/02-policy-language.md) | Full YAML grammar + predicates + Python escape hatch |
-| [SDK + CLI](docs/03-sdk-and-cli.md) | The public Python API + every CLI command |
-| [Threat model](docs/threat-model.md) | STRIDE analysis + guarantees + non-goals |
-| [How v1.0 was built](docs/00-execution-plan.md) | The execution plan that got us to v1.0 (historical) |
-
-Examples — a learning path of 12. Each lead with a plain-language SCENARIO so the use case is clear:
-
-| # | Demo | What it shows |
+| # | File | What it shows |
 |---|------|--------------|
-| 01 | [`01_hello_allow.py`](examples/01_hello_allow.py) | Smallest possible loop. ALLOW verdict. |
-| 02 | [`02_block_dangerous.py`](examples/02_block_dangerous.py) | Block `rm -rf /` before it can run. DENY verdict. |
-| 03 | [`03_preview_writes.py`](examples/03_preview_writes.py) | See a file's contents BEFORE saving. DRY_RUN verdict. |
-| 04 | [`04_human_approval.py`](examples/04_human_approval.py) | Pause for human sign-off on irreversible actions. |
-| 05 | [`05_real_llm_blocked.py`](examples/05_real_llm_blocked.py) | Real Claude / GPT agent gated by Lynx. |
-| 06 | [`06_compliance_audit.py`](examples/06_compliance_audit.py) | Hash-chain verification + tamper detection. |
-| 07 | [`07_refund_workflow.py`](examples/07_refund_workflow.py) | Multi-tier refund rules (allow / approve / deny). |
-| 08 | [`08_sql_transform.py`](examples/08_sql_transform.py) | TRANSFORM verdict auto-injects `tenant_id` into SQL. |
-| 09 | [`09_fastapi_service.py`](examples/09_fastapi_service.py) | Drop-in FastAPI integration. |
-| 10 | [`10_devops_assistant.py`](examples/10_devops_assistant.py) | All five verdicts in one realistic DevOps scenario. |
-| 11 | [`11_flask_service.py`](examples/11_flask_service.py) | Same as 09 but Flask (sync via `runtime.run_sync`). |
-| 12 | [`12_django_service.py`](examples/12_django_service.py) | Same as 09 but Django (async views, 4.1+). |
+| 01 | [`01_hello_allow.py`](examples/01_hello_allow.py) | Smallest possible run |
+| 02 | [`02_block_dangerous.py`](examples/02_block_dangerous.py) | DENY for `rm -rf /` |
+| 03 | [`03_preview_writes.py`](examples/03_preview_writes.py) | DRY_RUN with file shadow |
+| 04 | [`04_human_approval.py`](examples/04_human_approval.py) | Sync approval via stdin |
+| 05 | [`05_real_llm_blocked.py`](examples/05_real_llm_blocked.py) | Real Claude / GPT |
+| 06 | [`06_streaming_to_jsonl.py`](examples/06_streaming_to_jsonl.py) | Audit replacement: jsonl sink |
+| 07 | [`07_refund_workflow.py`](examples/07_refund_workflow.py) | Multi-tier refund rules |
+| 08 | [`08_sql_transform.py`](examples/08_sql_transform.py) | TRANSFORM verdict |
+| 09 | [`09_fastapi_service.py`](examples/09_fastapi_service.py) | FastAPI integration |
+| 10 | [`10_devops_assistant.py`](examples/10_devops_assistant.py) | All five verdicts |
+| 11 | [`11_flask_service.py`](examples/11_flask_service.py) | Flask integration |
+| 12 | [`12_django_service.py`](examples/12_django_service.py) | Django integration |
 
-See [`examples/README.md`](examples/README.md) for the full index + how to run them.
+## CLI — five commands
 
----
+```
+lynx --version
+lynx init                        # writes policy.yaml (only)
+lynx run <script>                # runs an async main()
+lynx policy lint                 # validates a YAML
+lynx policy bundle-id            # content-addressed ID
+```
+
+## Migrating from v1.x
+
+v1's `Runtime`, `runtime.run/resume/approve/deny`, SQLite store, audit chain, and approval broker are all gone. Replace:
+
+| v1 | v2 |
+|----|-----|
+| `runtime.run(agent, task=...)` | `run_agent(agent, task, tools=..., policy=..., sinks=..., on_approval=...)` |
+| `runtime.resume(run_id)` | Doesn't exist — restart is restart. Pause in your handler instead. |
+| `runtime.approve(approval_id)` | Doesn't exist — handler returns `ApprovalDecision` synchronously |
+| `runtime.audit_chain(run_id)` | Doesn't exist — wire `jsonl_sink` or your own sink |
+| `get_registry()` | Doesn't exist — `ToolSet.from_functions(*decorated_fns)` |
+| `enable_otel()` | Will land as `otel_sink(tracer)` in v2.1 |
+| `lynx ps / trace / audit / resume / approvals` | All gone — your sink owns the story |
+
+If you need any of those primitives, **pin v1.0.x:**
+
+```bash
+pip install "lynx-agent<2.0"
+```
+
+v1 will keep getting security fixes per the SECURITY.md policy.
 
 ## Status
 
-**v1.0 — public API committed.** SemVer from here: minor versions add features, patch versions fix bugs, major versions are reserved for breaking changes with documented deprecation cycles. Internal modules (`lynx.core.*`) are not part of the public API and may change in any minor release.
+**v2.0 — public API committed.** SemVer from here. Production-ready for the documented scope.
 
-Production-ready for the documented scope (SQLite store, all five adapters, subprocess sandbox, hash-chained audit). See [`CHANGELOG.md`](CHANGELOG.md) for the full v1.0 surface area covered by the SemVer commitment.
+## Design
 
----
+- [`docs/v2-rfc.md`](docs/v2-rfc.md) — the formal RFC this implementation follows
+- [`docs/concepts.md`](docs/concepts.md) — vocabulary
+- [`docs/cookbook.md`](docs/cookbook.md) — policy patterns
+- [`docs/faq.md`](docs/faq.md) — common questions
 
 ## License
 

@@ -1,176 +1,195 @@
 # Concepts
 
-Plain-language definitions of every Lynx term that appears in policies, code, or the CLI. Read this once and the rest of the docs make sense.
+Vocabulary for Lynx v2 in one page.
 
 ---
 
 ## Tool
 
-A Python async function decorated with `@tool`. It does *one thing*: deletes a file, sends an HTTP request, queries a database. Tools declare three pieces of metadata that the policy engine reads:
+An async function decorated with `@tool`. Attaches metadata via `__lynx_meta__`. Does not register globally.
 
 ```python
-@tool(cost="low", reversible=False, scope=["filesystem:write"])
+@tool(reversible=False, scope=("filesystem:write",))
 async def shell(cmd: str) -> str: ...
 ```
 
-- **`cost`**: `"low" | "medium" | "high"` — for budget enforcement
-- **`reversible`**: `bool` — `False` means undoing the side effect is impossible / expensive
-- **`scope`**: tuple of free-form labels like `"filesystem:write"`, `"db:write"`, `"net:egress"` that policy rules can match on
+A tool can have a `.shadow` twin — same signature, no side effects, used when policy returns `dry_run`.
 
-A tool can also have a **`.shadow`** — a twin function that produces a preview without actually doing the thing. Used for `dry_run` verdicts.
+## ToolSet
+
+An immutable, explicit collection of tools. Built at the call site.
+
+```python
+tools = ToolSet.from_functions(shell, write_file, delete_file)
+```
+
+Operations return new ToolSets: `.with_tool(...)`, `.without_tool(...)`, `.union(...)`. Never mutated.
 
 ## ActionRequest
 
-What the agent *wants to do*. Built automatically by the scheduler when the agent proposes a `ToolCall`:
-
-```
-ActionRequest(tool="shell", args={"cmd": "rm -rf /"}, declared=<metadata>, context=<...>)
-```
-
-Nothing happens to the world until the policy decides what to do with the request.
+The agent's proposed tool call, normalized for policy evaluation. Frozen.
 
 ## Verdict
 
-The five possible outcomes of policy evaluation:
+The five possible policy outcomes:
 
-| Verdict | What it means | What the kernel does |
-|---------|--------------|---------------------|
-| **`allow`** | Run as proposed | Calls the real tool |
-| **`deny`** | Refuse | Returns a structured denial to the agent ("you tried X, was denied because Y"); the agent can try a different approach |
-| **`dry_run`** | Preview only | Calls `tool.shadow()` instead of `tool()`; the agent sees the preview as if it were the real result |
-| **`approve_required`** | Wait for a human | Pauses the run, persists the request, emits an approval event; resumes when an approver grants it |
-| **`transform`** | Run with different args | The kernel substitutes new args (e.g. add `WHERE tenant_id=X` to a SQL query) and runs the tool |
+| Verdict | What the kernel does |
+|---------|---------------------|
+| `allow` | Calls the real tool function |
+| `deny` | Returns a denial; agent sees `[denied]` as a tool result |
+| `dry_run` | Calls the tool's `.shadow` twin; returns preview as the result |
+| `approve_required` | Calls `on_approval(req)`; runs the action if granted |
+| `transform` | Runs the tool with rewritten arguments |
 
 ## Decision
 
-The output of the policy engine. Pure data: a verdict + a human-readable reason + which rules matched + any extras (approvers, transform args).
+Frozen dataclass returned by the PDP. Includes the verdict, reason, matched rule IDs, and optional approvers / timeout / transform_args.
 
 ## Policy
 
-A YAML file. Says what to do for each kind of `ActionRequest`. Three tiers of expressiveness:
+A YAML document plus optional Python rules, compiled into a `PolicyBundle`. The bundle has a content-addressed `id` (sha256-prefix of canonical JSON of its rules). Pass to `run_agent` for the kernel to consult.
 
-1. **Declarative YAML rules** — covers ~80% of cases
-2. **Reusable named predicates** — for repeated patterns
-3. **Python escape hatch** — `@policy.rule` for edge cases
+## PolicyBundle
 
-```yaml
-rules:
-  - id: block-rm-root
-    match:
-      tool: shell
-      args.cmd.matches: '^\s*rm\s+(-[rRf]+\s+)+/(\s|$)'
-    decision: deny
-    reason: "rm -rf / is hard-blocked"
-```
+Frozen, immutable. The `id` is a deterministic hash; equal bundles have equal IDs. Surfaced in every event for attestation.
 
-Policies are **content-addressed**: the bundle gets a SHA hash at compile time. Tasks pin themselves to the bundle ID at creation, so policy changes don't affect runs already in flight.
+## PDP
+
+The Policy Decision Point: `evaluate(bundle, request, context) -> Decision`. Pure function. Same inputs → same Decision. No I/O.
+
+## Mediator
+
+The Policy Enforcement Point: `mediate(request, decision, tools, on_approval) -> ActionResult`. Pure async function that dispatches by verdict.
 
 ## Run
 
-One execution attempt of a `Task`. Has a state machine: `pending → running → (paused →) succeeded | failed | cancelled`.
+Conceptually, one execution of `run_agent`. Not a stored entity — there is no `Run` class in v2. Each call generates a `correlation_id` (UUID4) that ties all its events together.
 
-A `Run` is identified by a ULID prefixed with `R-`. You'll see these in CLI output and audit exports.
+## RunResult
 
-## Step
+Minimal frozen dataclass returned by `run_agent`:
 
-One iteration of the agent loop:
-
+```python
+@dataclass(frozen=True, slots=True)
+class RunResult:
+    correlation_id: str
+    bundle_id: str
+    final_answer: str | None
+    error: str | None
+    steps_taken: int
 ```
-model call → ActionRequest → policy → Decision → mediator → ActionResult → checkpoint
+
+No history. No event list. No persistent state.
+
+## Sink
+
+A callable taking one `AuditEvent` at a time. Lynx never buffers; sinks are fired per event.
+
+```python
+async def my_sink(event: AuditEvent) -> None: ...
 ```
 
-A `Step` has a sequence number (monotonic per run) and a checkpoint blob containing the conversation state. Crash recovery + idempotent resume work because every step writes a checkpoint *before* its side effect.
+Built-in: `stdout_sink`, `jsonl_sink`, `noop_sink`, `multi_sink`, `callback_sink`.
 
-## Mediator (PEP — Policy Enforcement Point)
+## ApprovalHandler
 
-The chokepoint. Every action passes through it. Given a `Decision`, it dispatches:
+A callable taking one `ApprovalRequest` and returning an `ApprovalDecision`. Called synchronously by the kernel when policy returns `approve_required`.
 
-- `allow` → calls the tool
-- `deny` → raises `ToolDenied`
-- `dry_run` → calls the tool's shadow
-- `approve_required` → opens an approval and raises `ApprovalPending`
-- `transform` → calls the tool with substituted args
+```python
+async def my_handler(req: ApprovalRequest) -> ApprovalDecision: ...
+```
 
-## PDP (Policy Decision Point)
-
-The pure function that turns `(PolicyBundle, ActionRequest, ExecutionContext)` into a `Decision`. No I/O, no network, no clocks. Deterministic. Replay-friendly.
+Built-in: `auto_approve`, `auto_deny`, `cli_prompt_approval`, `callback_approval`.
 
 ## AuditEvent
 
-One entry in the append-only, hash-chained audit log. Identified by `sha256(prev || canonical_json(body))`. Includes events like `run.started`, `step.proposed`, `policy.evaluated`, `action.completed`, `approval.granted`, `run.succeeded`.
+What the sinks receive. Frozen. Minimal.
 
-You can verify the chain anytime: `lynx audit verify <run-id>`. Tampering — body changes, missing events, hash mismatches — is detectable.
+```python
+@dataclass(frozen=True, slots=True)
+class AuditEvent:
+    correlation_id: str       # UUID4 grouping events from one run
+    bundle_id: str            # policy hash in effect
+    seq: int                  # monotonic within the run
+    kind: str                 # "step.proposed" / "policy.evaluated" / ...
+    timestamp: datetime
+    body: Mapping[str, Any]
+```
 
-## Approval
+No hash chain. No content addressing. Your sink decides retention.
 
-When the policy returns `approve_required`, the kernel:
+## Event kinds
 
-1. Persists an `ApprovalRequest` to the store
-2. Pauses the run
-3. Returns control to the caller with a `paused_approval_id`
-
-A human then calls `lynx approve <approval-id>` (or hits a webhook). When the agent is re-invoked with `runtime.resume(run_id)`, the approved action executes and the loop continues.
-
-## Sandbox
-
-Optional isolation for individual tools. Today: `none` (in-process) or `subprocess` (fresh Python interpreter, stripped env, ulimits, timeout). Container mode is on the v1.x roadmap.
-
-## Store
-
-Where Lynx persists Tasks, Runs, Steps, AuditEvents, and Approvals. SQLite by default (zero infrastructure). Postgres for production. The interface is the same; swap via config.
-
-## Agent
-
-Anything that satisfies the `Agent` protocol — one method, `async def step(conversation: list[Message]) -> ToolCall | FinalAnswer`. The runtime drives the loop; the agent decides what to do next.
-
-Built-in adapters wrap Anthropic, OpenAI, LangGraph, CrewAI, and MCP servers into this shape. Bring your own works too.
-
-## Shadow
-
-A side-effect-free twin of a tool. Returns a preview of what the action *would* do. Required when the PDP returns `dry_run`. Pre-built shadows ship for `shell`, `write_file`, `delete_file`, `sql`, `http`.
+| Kind | When emitted |
+|------|-------------|
+| `run.started` | At the start of `run_agent` |
+| `step.proposed` | Agent returned a `ToolCall` |
+| `policy.evaluated` | PDP returned a Decision |
+| `action.started` | Real tool about to run (allow / transform / approval-granted) |
+| `action.dry_run` | Shadow about to run |
+| `action.completed` | Tool returned ok |
+| `action.failed` | Tool raised or denial |
+| `action.denied` | Policy denial path |
+| `approval.requested` | `approve_required` verdict |
+| `approval.granted` | Handler returned `granted=True` |
+| `approval.denied` | Handler returned `granted=False` |
+| `run.succeeded` | Agent returned FinalAnswer |
+| `run.failed` | Budget exhausted / agent.step raised |
 
 ## Principal
 
-Who the agent is acting on behalf of: `Principal(kind="user|service|agent", id="...")`. Policy rules can match on this; audit events include it.
+Frozen. Who the agent is acting on behalf of.
+
+```python
+Principal(kind="user" | "service" | "agent", id="...", name="...")
+```
 
 ## Budget
 
-Hard caps the scheduler enforces: `usd`, `tokens`, `duration_seconds`, `steps`. Defaults are sane (50 steps, 600 seconds, no money cap).
+Frozen. Hard caps the kernel enforces.
+
+```python
+Budget(steps=50, duration_seconds=600, usd=..., tokens=...)
+```
 
 ## ExecutionContext
 
-The per-action metadata passed to the PDP: `principal`, `environment` (`"dev" / "prod"`), `workspace`, `run_id`, `step_seq`, `timestamp`, plus an `extra` dict for operator-defined fields. Policy rules match on context fields too.
+Frozen. Set by the kernel for each step:
 
----
+```python
+ExecutionContext(principal, environment, workspace, correlation_id, step_seq, timestamp, extra)
+```
 
-## How the pieces fit together
+Policy rules can match on any field via `context.<field>`.
+
+## Agent protocol
+
+The single contract every agent must satisfy:
+
+```python
+class Agent(Protocol):
+    async def step(self, conversation: tuple[Message, ...]) -> ToolCall | FinalAnswer: ...
+```
+
+The runtime never mutates the conversation; each step rebinds the tuple. No buffer is held outside the function.
+
+## How the pieces fit
 
 ```
-       Agent                         Real world
-         │                                ▲
-         │ ToolCall                       │ ActionResult
-         ▼                                │
+       Agent                              Real world
+         │                                    ▲
+         │ ToolCall                           │ ActionResult
+         ▼                                    │
    ┌──────────────────────────────────────────────────────┐
-   │  Scheduler                                           │
-   │     │  build ActionRequest                           │
-   │     ▼                                                │
-   │  PDP  ──► Decision                                   │
-   │     │                                                │
-   │     ▼                                                │
-   │  Mediator (PEP)                                      │
-   │     │  allow / deny / dry_run / approve / transform  │
-   │     ▼                                                │
-   │  Tool function (in process or sandbox)               │
-   │     │                                                │
-   │     ▼                                                │
-   │  Store: Step + Checkpoint + AuditEvent               │
+   │  run_agent (single pure async function)             │
+   │      build ActionRequest                            │
+   │            ▼                                         │
+   │      PDP → Decision           (pure)                │
+   │            ▼                                         │
+   │      Mediator (PEP)            (pure async)         │
+   │            ▼  emit events                            │
+   │      Sinks: stdout / jsonl / OTel / yours            │
    └──────────────────────────────────────────────────────┘
 ```
 
-Three trust boundaries:
-
-1. **Agent → ActionRequest** — agent is untrusted; the request shape is normalized so policy can reason about it
-2. **PDP → Decision** — policy decides verdict from the request
-3. **Mediator → Action** — the only place real-world side effects happen, and they only happen if the Decision was `allow` (or `dry_run` for shadows, or `transform` for rewritten args)
-
-Read [`docs/threat-model.md`](threat-model.md) for the full STRIDE analysis.
+No `Runtime` class. No `Scheduler` class. No `ApprovalBroker`. No globals.

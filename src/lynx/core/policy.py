@@ -1,18 +1,15 @@
-"""Policy compiler and Policy Decision Point (PDP).
+"""Policy compiler + Policy Decision Point (PDP).
 
-Pure functions, no I/O. Loads YAML once and returns a frozen PolicyBundle that
-the PDP evaluates against ActionRequests.
-
-The spec lives in docs/02-policy-language.md. This implements Tier 1 (YAML)
-plus the basics of Tier 2 (predicates). Tier 3 (Python escape hatch) is a
-hook point only in the MVP.
+Pure functions; the PDP takes (bundle, request, context) and returns a Decision.
+No module-level state. Python rules are passed explicitly to ``compile_policy``;
+no ``@rule`` decorator with a hidden registry.
 """
 
 from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -27,38 +24,23 @@ from lynx.core.types import (
     canonical_json,
 )
 
-# ---------------------------------------------------------------------------
-# Compiled bundle
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class PolicyDefaults:
-    on_missing_shadow: Verdict = Verdict.APPROVE_REQUIRED
-    on_no_match: Verdict = Verdict.DENY
-
-
-@dataclass(frozen=True)
-class CompiledRule:
-    id: str
-    priority: int
-    description: str
-    matcher: Callable[[ActionRequest, ExecutionContext], bool]
-    decision_factory: Callable[[ActionRequest, ExecutionContext], Decision]
-    source_location: str
-
-
-@dataclass(frozen=True)
-class PolicyBundle:
-    id: str
-    version: int
-    rules: tuple[CompiledRule, ...]
-    defaults: PolicyDefaults
-    source_files: tuple[str, ...] = ()
+__all__ = [
+    "PolicyBundle",
+    "PolicyDefaults",
+    "PythonRule",
+    "allow",
+    "approve_required",
+    "compile_policy",
+    "deny",
+    "dry_run",
+    "evaluate",
+    "load_policy_file",
+    "transform",
+]
 
 
 # ---------------------------------------------------------------------------
-# Public Decision constructors (used in Tier 3 Python rules and tests)
+# Public Decision constructors (used in Python rules + tests)
 # ---------------------------------------------------------------------------
 
 
@@ -90,7 +72,7 @@ def approve_required(
 
 
 def transform(
-    transform_args: dict[str, Any],
+    transform_args: Mapping[str, Any],
     reason: str = "",
     matched_rules: tuple[str, ...] = (),
 ) -> Decision:
@@ -103,27 +85,38 @@ def transform(
 
 
 # ---------------------------------------------------------------------------
-# Tier 3 decorator (registration only; evaluation hooked into compile)
+# Bundle types (frozen)
 # ---------------------------------------------------------------------------
 
 
-_python_rules: list[tuple[str, int, Callable[..., Decision | None]]] = []
+@dataclass(frozen=True, slots=True)
+class PolicyDefaults:
+    on_missing_shadow: Verdict = Verdict.APPROVE_REQUIRED
+    on_no_match: Verdict = Verdict.DENY
 
 
-def rule(
-    id: str | None = None,
-    priority: int = 0,
-) -> Callable[[Callable[..., Decision | None]], Callable[..., Decision | None]]:
-    def deco(fn: Callable[..., Decision | None]) -> Callable[..., Decision | None]:
-        _python_rules.append((id or fn.__name__, priority, fn))
-        return fn
+@dataclass(frozen=True, slots=True)
+class CompiledRule:
+    id: str
+    priority: int
+    description: str
+    matcher: Callable[[ActionRequest, ExecutionContext], bool]
+    decision_factory: Callable[[ActionRequest, ExecutionContext], Decision]
+    source_location: str
 
-    return deco
+
+# A PythonRule is just any callable matching this shape.
+PythonRule = Callable[[ActionRequest, ExecutionContext], "Decision | None"]
 
 
-def clear_python_rules() -> None:
-    """Test helper."""
-    _python_rules.clear()
+@dataclass(frozen=True, slots=True)
+class PolicyBundle:
+    id: str
+    version: int
+    rules: tuple[CompiledRule, ...]
+    python_rules: tuple[tuple[str, int, PythonRule], ...]
+    defaults: PolicyDefaults
+    source_files: tuple[str, ...] = ()
 
 
 # ---------------------------------------------------------------------------
@@ -135,14 +128,6 @@ PathFn = Callable[[ActionRequest, ExecutionContext], Any]
 
 
 def _path_getter(dotted: str) -> PathFn:
-    """Resolve a dotted path against (request, context).
-
-    Special prefixes:
-        tool                              → request.tool
-        args.<...>                        → request.args[<...>]
-        declared.<field>                  → request.declared.<field>
-        context.<field> / .principal.<f>  → request.context.<...>
-    """
     parts = dotted.split(".")
 
     def get(req: ActionRequest, ctx: ExecutionContext) -> Any:
@@ -151,7 +136,7 @@ def _path_getter(dotted: str) -> PathFn:
         if parts[0] == "args":
             cur: Any = req.args
             for p in parts[1:]:
-                if isinstance(cur, dict):
+                if isinstance(cur, Mapping):
                     cur = cur.get(p)
                 else:
                     return None
@@ -164,7 +149,7 @@ def _path_getter(dotted: str) -> PathFn:
         if parts[0] == "context":
             cur = req.context
             for p in parts[1:]:
-                if isinstance(cur, dict):
+                if isinstance(cur, Mapping):
                     cur = cur.get(p)
                 else:
                     cur = getattr(cur, p, None)
@@ -175,25 +160,14 @@ def _path_getter(dotted: str) -> PathFn:
 
 
 _MAX_REGEX_LENGTH = 1000
-# Textbook catastrophic-backtracking shapes: the inner quantified atom and the
-# outer group repeat the SAME thing. e.g., (a+)+, (\w*)*, (.+)+, (a|a)+.
-# We don't try to catch every ReDoS — that requires automaton analysis. We
-# catch the classic shapes that almost certainly indicate a bug.
 _REGEX_DANGEROUS_PATTERNS = (
-    re.compile(r"\(\s*\\?[wWsSdD.]\s*[\*\+]\s*\)\s*[\*\+]"),  # (\w+)+, (.*)*, (.+)+
-    re.compile(r"\(\s*[a-zA-Z0-9]\s*[\*\+]\s*\)\s*[\*\+]"),  # (a+)+, (b*)*
-    re.compile(r"\(\s*([^)|]+)\s*\|\s*\1\s*\)\s*[\*\+]"),  # (a|a)+
+    re.compile(r"\(\s*\\?[wWsSdD.]\s*[\*\+]\s*\)\s*[\*\+]"),
+    re.compile(r"\(\s*[a-zA-Z0-9]\s*[\*\+]\s*\)\s*[\*\+]"),
+    re.compile(r"\(\s*([^)|]+)\s*\|\s*\1\s*\)\s*[\*\+]"),
 )
 
 
 def _compile_safe_regex(pattern: str) -> re.Pattern[str]:
-    """Compile a regex pattern after rejecting obviously dangerous shapes.
-
-    This is a first-pass guard against ReDoS. It is NOT a full ReDoS analyzer
-    — for that we'd need an automaton-based engine. We catch the common
-    catastrophic-backtracking shapes (nested unbounded quantifiers) and cap
-    pattern length.
-    """
     if len(pattern) > _MAX_REGEX_LENGTH:
         raise ValueError(f"Regex pattern too long ({len(pattern)} > {_MAX_REGEX_LENGTH})")
     for danger in _REGEX_DANGEROUS_PATTERNS:
@@ -222,17 +196,16 @@ _OPERATORS = {
 
 
 def _compile_predicate(
-    spec: dict[str, Any] | str,
-    predicates: dict[str, dict[str, Any]],
+    spec: Mapping[str, Any] | str,
+    predicates: Mapping[str, Mapping[str, Any]],
 ) -> Callable[[ActionRequest, ExecutionContext], bool]:
-    """Compile a match-block (or reference to a named predicate)."""
     if isinstance(spec, str):
         if spec not in predicates:
             raise ValueError(f"Unknown predicate: {spec!r}")
         return _compile_predicate(predicates[spec], predicates)
 
-    if not isinstance(spec, dict):
-        raise ValueError(f"Predicate must be dict or predicate name, got: {spec!r}")
+    if not isinstance(spec, Mapping):
+        raise ValueError(f"Predicate must be Mapping or predicate name, got: {spec!r}")
 
     leaves: list[Callable[[ActionRequest, ExecutionContext], bool]] = []
 
@@ -253,13 +226,11 @@ def _compile_predicate(
 
 
 def _compile_leaf(key: str, value: Any) -> Callable[[ActionRequest, ExecutionContext], bool]:
-    """Compile a single 'field' or 'field.operator' entry."""
     if "." in key:
         head, _, tail = key.rpartition(".")
         if tail in _OPERATORS:
             getter = _path_getter(head)
             return _operator_check(getter, tail, value)
-    # plain equality
     getter = _path_getter(key)
     return lambda r, c, getter=getter, value=value: getter(r, c) == value
 
@@ -272,67 +243,67 @@ def _operator_check(
     if op == "matches":
         pat = _compile_safe_regex(value)
 
-        def check(r: ActionRequest, c: ExecutionContext) -> bool:
+        def check_matches(r: ActionRequest, c: ExecutionContext) -> bool:
             v = getter(r, c)
             return isinstance(v, str) and pat.search(v) is not None
 
-        return check
+        return check_matches
     if op == "in":
         return lambda r, c: getter(r, c) in value
     if op == "contains":
 
-        def check(r: ActionRequest, c: ExecutionContext) -> bool:
+        def check_contains(r: ActionRequest, c: ExecutionContext) -> bool:
             v = getter(r, c)
             return v is not None and value in v
 
-        return check
+        return check_contains
     if op == "contains_any":
 
-        def check(r: ActionRequest, c: ExecutionContext) -> bool:
+        def check_contains_any(r: ActionRequest, c: ExecutionContext) -> bool:
             v = getter(r, c)
             if v is None:
                 return False
             return any(item in v for item in value)
 
-        return check
+        return check_contains_any
     if op == "contains_all":
 
-        def check(r: ActionRequest, c: ExecutionContext) -> bool:
+        def check_contains_all(r: ActionRequest, c: ExecutionContext) -> bool:
             v = getter(r, c)
             if v is None:
                 return False
             return all(item in v for item in value)
 
-        return check
+        return check_contains_all
     if op in {"gt", "ge", "lt", "le"}:
-        cmp = {
+        cmp_fn = {
             "gt": lambda a, b: a > b,
             "ge": lambda a, b: a >= b,
             "lt": lambda a, b: a < b,
             "le": lambda a, b: a <= b,
         }[op]
 
-        def check(r: ActionRequest, c: ExecutionContext) -> bool:
+        def check_cmp(r: ActionRequest, c: ExecutionContext) -> bool:
             v = getter(r, c)
-            return v is not None and cmp(v, value)
+            return v is not None and cmp_fn(v, value)
 
-        return check
+        return check_cmp
     if op == "between":
         lo, hi = value
 
-        def check(r: ActionRequest, c: ExecutionContext) -> bool:
+        def check_between(r: ActionRequest, c: ExecutionContext) -> bool:
             v = getter(r, c)
             return v is not None and lo <= v <= hi
 
-        return check
+        return check_between
     if op == "not_between":
         lo, hi = value
 
-        def check(r: ActionRequest, c: ExecutionContext) -> bool:
+        def check_not_between(r: ActionRequest, c: ExecutionContext) -> bool:
             v = getter(r, c)
             return v is not None and not (lo <= v <= hi)
 
-        return check
+        return check_not_between
     raise ValueError(f"Unknown operator: {op}")
 
 
@@ -342,9 +313,8 @@ def _operator_check(
 
 
 def _compile_decision(
-    raw: dict[str, Any] | str, rule_id: str
+    raw: Mapping[str, Any] | str, rule_id: str
 ) -> Callable[[ActionRequest, ExecutionContext], Decision]:
-    """Turn a YAML decision into a function producing a Decision."""
     if isinstance(raw, str):
         return _simple_decision(raw, rule_id)
 
@@ -375,9 +345,8 @@ def _simple_decision(
     return lambda r, c: Decision(verdict=v, matched_rules=(rule_id,))
 
 
-def _apply_transform(spec: dict[str, Any], req: ActionRequest) -> dict[str, Any]:
-    """Apply a transform specification to args. Very small for MVP."""
-    new_args = dict(req.args)
+def _apply_transform(spec: Mapping[str, Any], req: ActionRequest) -> Mapping[str, Any]:
+    new_args: dict[str, Any] = dict(req.args)
     target = spec.get("jsonpath", "$.args").removeprefix("$.args.")
     if "set" in spec:
         new_args[target] = spec["set"]
@@ -394,13 +363,19 @@ def _apply_transform(spec: dict[str, Any], req: ActionRequest) -> dict[str, Any]
 # ---------------------------------------------------------------------------
 
 
-def compile_policy(source: str | dict[str, Any], source_path: str = "<inline>") -> PolicyBundle:
-    """Compile YAML text (or dict) into a PolicyBundle."""
-    data: dict[str, Any]
-    if isinstance(source, str):
-        data = yaml.safe_load(source) or {}
-    else:
-        data = source
+def compile_policy(
+    source: str | Mapping[str, Any],
+    source_path: str = "<inline>",
+    *,
+    python_rules: tuple[PythonRule, ...] = (),
+    python_rule_priorities: tuple[tuple[str, int], ...] = (),
+) -> PolicyBundle:
+    """Compile YAML (or dict) into a frozen PolicyBundle.
+
+    Python rules are passed in explicitly — no module-level registry.
+    Each Python rule must be a callable ``(ActionRequest, ExecutionContext) -> Decision | None``.
+    """
+    data: Mapping[str, Any] = yaml.safe_load(source) or {} if isinstance(source, str) else source
 
     version = int(data.get("version", 1))
     defaults_raw = data.get("defaults", {})
@@ -411,7 +386,7 @@ def compile_policy(source: str | dict[str, Any], source_path: str = "<inline>") 
         on_no_match=Verdict(defaults_raw.get("on_no_match", Verdict.DENY.value)),
     )
 
-    predicates: dict[str, dict[str, Any]] = data.get("predicates", {}) or {}
+    predicates: Mapping[str, Mapping[str, Any]] = data.get("predicates", {}) or {}
 
     rules: list[CompiledRule] = []
     raw_rules = data.get("rules", []) or []
@@ -442,29 +417,46 @@ def compile_policy(source: str | dict[str, Any], source_path: str = "<inline>") 
             )
         )
 
-    # Sort: priority desc, file order
     rules.sort(key=lambda r: (-r.priority, r.source_location))
 
+    # Python rule priorities: default 0; user can override via the second tuple.
+    priority_map: Mapping[str, int] = dict(python_rule_priorities)
+    py_rules_compiled: tuple[tuple[str, int, PythonRule], ...] = tuple(
+        sorted(
+            ((fn.__name__, priority_map.get(fn.__name__, 0), fn) for fn in python_rules),
+            key=lambda t: -t[1],
+        )
+    )
+
     bundle_id = hashlib.sha256(
-        canonical_json({"version": version, "rules": [r.id for r in rules]}).encode()
+        canonical_json(
+            {
+                "version": version,
+                "rules": [r.id for r in rules],
+                "python_rules": [name for name, _, _ in py_rules_compiled],
+            }
+        ).encode()
     ).hexdigest()[:16]
 
     return PolicyBundle(
         id=bundle_id,
         version=version,
         rules=tuple(rules),
+        python_rules=py_rules_compiled,
         defaults=defaults,
         source_files=(source_path,),
     )
 
 
-def load_policy_file(path: str | Path) -> PolicyBundle:
+def load_policy_file(
+    path: str | Path, *, python_rules: tuple[PythonRule, ...] = ()
+) -> PolicyBundle:
     p = Path(path)
-    return compile_policy(p.read_text(), source_path=str(p))
+    return compile_policy(p.read_text(), source_path=str(p), python_rules=python_rules)
 
 
 # ---------------------------------------------------------------------------
-# PDP (Policy Decision Point)
+# PDP — pure
 # ---------------------------------------------------------------------------
 
 
@@ -473,13 +465,13 @@ def evaluate(
     request: ActionRequest,
     context: ExecutionContext,
 ) -> Decision:
-    """Evaluate a request against the bundle. Pure, deterministic.
-
-    First-match-wins. If no rule matches, fall through to defaults.
-    """
-    # Tier 3: in-memory Python rules first (sorted by priority desc)
-    for rule_id, _priority, fn in sorted(_python_rules, key=lambda x: -x[1]):
-        result = fn(request, context)
+    """Pure: same (bundle, request, context) always returns the same Decision."""
+    # Python rules first (sorted by priority desc, already done in compile)
+    for rule_id, _priority, fn in bundle.python_rules:
+        try:
+            result = fn(request, context)
+        except Exception:
+            result = None
         if result is not None:
             return Decision(
                 verdict=result.verdict,
@@ -497,10 +489,8 @@ def evaluate(
             if rule.matcher(request, context):
                 return rule.decision_factory(request, context)
         except Exception:
-            # A broken rule should not crash the PDP; treat as no-match.
             continue
 
-    # Defaults
     if not request.declared.reversible and not request.declared.has_shadow:
         return Decision(
             verdict=bundle.defaults.on_missing_shadow,

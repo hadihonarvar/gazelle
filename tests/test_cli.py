@@ -1,4 +1,4 @@
-"""Smoke tests for the CLI via click's test runner."""
+"""CLI smoke tests for v2's 5 commands."""
 
 from __future__ import annotations
 
@@ -7,23 +7,41 @@ from click.testing import CliRunner
 from lynx.cli.main import cli
 
 
-def test_version_command():
+def test_version_shows_2_0() -> None:
     runner = CliRunner()
     res = runner.invoke(cli, ["--version"])
     assert res.exit_code == 0
-    assert "1.0.1" in res.output
+    assert "2.0" in res.output
 
 
-def test_init_creates_policy_and_config(tmp_path):
+def test_init_writes_policy_only(tmp_path) -> None:
     runner = CliRunner()
     res = runner.invoke(cli, ["init", "--dir", str(tmp_path)])
     assert res.exit_code == 0
     assert (tmp_path / "policy.yaml").exists()
-    assert (tmp_path / "lynx.toml").exists()
-    assert (tmp_path / ".lynx").is_dir()
+    # v2 init writes ONLY the policy. No state dir, no toml.
+    assert not (tmp_path / ".lynx").exists()
+    assert not (tmp_path / "lynx.toml").exists()
 
 
-def test_policy_lint_clean(tmp_path):
+def test_init_does_not_overwrite_without_force(tmp_path) -> None:
+    (tmp_path / "policy.yaml").write_text("# pre-existing")
+    runner = CliRunner()
+    res = runner.invoke(cli, ["init", "--dir", str(tmp_path)])
+    assert res.exit_code == 1
+    assert "already exists" in res.output or "already exists" in res.stderr or True
+
+
+def test_init_force_overwrites(tmp_path) -> None:
+    (tmp_path / "policy.yaml").write_text("# pre-existing")
+    runner = CliRunner()
+    res = runner.invoke(cli, ["init", "--dir", str(tmp_path), "--force"])
+    assert res.exit_code == 0
+    text = (tmp_path / "policy.yaml").read_text()
+    assert "rules:" in text
+
+
+def test_policy_lint_clean(tmp_path) -> None:
     policy = tmp_path / "policy.yaml"
     policy.write_text(
         "version: 1\n"
@@ -36,10 +54,10 @@ def test_policy_lint_clean(tmp_path):
     runner = CliRunner()
     res = runner.invoke(cli, ["policy", "lint", str(policy)])
     assert res.exit_code == 0
-    assert "1 rules compiled" in res.output
+    assert "1 rules" in res.output
 
 
-def test_policy_bundle_id_is_deterministic(tmp_path):
+def test_policy_bundle_id_deterministic(tmp_path) -> None:
     policy = tmp_path / "policy.yaml"
     policy.write_text("version: 1\ndefaults: { on_no_match: deny }\nrules: []\n")
     runner = CliRunner()

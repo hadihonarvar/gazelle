@@ -3,29 +3,27 @@
 from lynx.core.policy import (
     PolicyBundle,
     PolicyDefaults,
+    PythonRule,
     allow,
     approve_required,
-    clear_python_rules,
     compile_policy,
     deny,
     dry_run,
     evaluate,
     load_policy_file,
-    rule,
     transform,
 )
 
 __all__ = [
     "PolicyBundle",
     "PolicyDefaults",
+    "PythonRule",
     "allow",
     "approve_required",
-    "clear_python_rules",
     "compile_policy",
     "deny",
     "dry_run",
     "evaluate",
     "load_policy_file",
-    "rule",
     "transform",
 ]

@@ -1,161 +1,90 @@
 # FAQ
 
-The questions people ask in the first 48 hours.
-
----
-
 ### Does Lynx slow my agent down?
 
-The PDP itself is ~1µs for a typical policy (≤100 rules). End-to-end overhead per step is ~3ms — almost entirely SQLite writes for the checkpoint + audit log. For real agents where each step is an LLM call (typically 500ms–5s), Lynx's overhead is negligible (<1%).
+The PDP is a pure function; typical evaluation is ~1µs. Per step, the kernel adds a small number of dict / dataclass allocations plus whatever your sinks do. For real agents where each step is a 500 ms – 5 s LLM call, Lynx's overhead is negligible.
 
-Live numbers in [`benchmarks/`](../benchmarks/README.md).
+### Where does the audit go?
 
-### Which agent frameworks does it support?
+Wherever you point the sinks. v2 holds nothing. Common choices:
+- `stdout_sink()` — dev
+- `jsonl_sink(open("audit.jsonl", "a"))` — to disk; you own retention
+- Custom `callback_sink(fn)` — ship to OTel, Datadog, Splunk, your bus
 
-Built-in adapters: **Anthropic Claude, OpenAI, LangGraph, CrewAI, MCP servers**. The `Agent` protocol is one method — adding a new framework is typically <100 lines.
+### Can I get the v1 hash-chained audit chain?
 
-You can also use Lynx with a hand-rolled loop. Anything with `async def step(conversation) -> ToolCall | FinalAnswer` works.
+Not in v2. If you need it: `pip install "lynx-agent<2.0"`. We keep v1.0.x security-patched.
 
-### Do I need to rewrite my tools?
+### How do I do cross-process approval (Slack, web UI)?
 
-No. Wrap existing functions with `@tool(...)`. If your tool is synchronous, wrap it in `asyncio.to_thread(...)` inside an async shim.
-
-### How do I write a policy rule?
-
-Three layers, increasing power:
-
-```yaml
-# Layer 1: declarative YAML
-- id: block-prod-deletes
-  match:
-    tool: aws_cli
-    context.environment: prod
-    args.cmd.matches: '^aws .* delete-'
-  decision: deny
-```
-
-```yaml
-# Layer 2: named predicates for reuse
-predicates:
-  in_prod: { context.environment: prod }
-  is_destructive:
-    args.cmd.matches: '(?i)\b(delete|drop|truncate)\b'
-rules:
-  - match: { all_of: [in_prod, is_destructive] }
-    decision: approve_required
-    approvers: ["@oncall"]
-```
+Write a custom `on_approval` handler that talks to your queue:
 
 ```python
-# Layer 3: Python escape hatch for edge cases YAML can't express
-@policy.rule(priority=10)
-def block_paths_outside_workspace(req, ctx):
-    for path in extract_paths(req.args.get("cmd", "")):
-        if not path.startswith(ctx.workspace):
-            return policy.deny(reason=f"Path {path} escapes workspace")
+async def slack_approval(req):
+    msg = await slack.post(f"Approve {req.request.tool}?")
+    btn = await slack.wait_for_click(msg, timeout=3600)
+    return ApprovalDecision(granted=btn=="approve", approver=btn.user)
+
+await run_agent(..., on_approval=callback_approval(slack_approval))
 ```
 
-Full grammar in [`docs/02-policy-language.md`](02-policy-language.md).
+The `run_agent` call blocks on your handler. Lynx stays stateless; your handler owns the wait.
 
-### Can I test my policy without running an agent?
+### What happens if my process crashes mid-run?
 
-Yes — `lynx policy lint policy.yaml` validates it; fixture-based testing is supported with `lynx policy test fixtures/`. The PDP is a pure function, so unit tests are easy:
+The run is lost. v2 does not survive a process restart. If you need that, use [Temporal](https://temporal.io) for the orchestration layer + Lynx for the policy layer, or pin v1.
+
+### Is there a Runtime singleton?
+
+No. Each `run_agent` call is fully independent. There is no `Runtime` class, no module-level `runtime`.
+
+### How do I use a custom tool registry per request?
+
+Just build a new `ToolSet`:
 
 ```python
-from lynx.policy import compile_policy, evaluate
+@tool(reversible=True)
+async def read_only(): ...
 
-bundle = compile_policy(open("policy.yaml").read())
-decision = evaluate(bundle, request, context)
-assert decision.verdict == "deny"
+@tool(reversible=False)
+async def writeable(): ...
+
+dev_tools = ToolSet.from_functions(read_only, writeable)
+prod_tools = ToolSet.from_functions(read_only)        # safer in prod
 ```
 
-### What if my LLM doesn't realize an action was denied?
+Pass whichever to `run_agent`. ToolSets are immutable, cheap to build, freed when the call returns.
 
-Lynx feeds the denial back into the conversation as a tool result:
+### How do I hot-reload policy?
 
-```
-[denied by policy] rm -rf / is hard-blocked
-```
-
-Modern LLMs (Claude, GPT-4/5, Gemini) treat this as a normal tool failure and retry with a different approach. If you find your model ignoring denials, prompt-engineer the system message to acknowledge denials explicitly.
-
-### Where does state get stored?
-
-By default: `./.lynx/state.db` (SQLite). You can point to any path via config. For production, swap to Postgres:
+Re-call `load_policy_file()` whenever you want a new bundle. Build at request time if you need:
 
 ```python
-from lynx.stores.postgres import PostgresStore
-runtime = Runtime(store=PostgresStore("postgresql://..."), policy=...)
+async def handler():
+    policy = load_policy_file("policy.yaml")    # fresh each request
+    return await run_agent(..., policy=policy)
 ```
 
-### Is the audit log secure?
+### Do I need to clean up anything?
 
-Each event is content-addressed (`event.id = sha256(prev || canonical_json(body))`) and linked to its predecessor. `lynx audit verify <run-id>` walks the chain and detects body changes, hash mismatches, or missing events.
+No. v2 holds no file handles, no DB connections, no sockets, no subprocess refs. Your sinks own their files; close them when you're done. The subprocess sandbox auto-cleans its temp dir.
 
-Anyone with write access to the SQLite file can edit it — Lynx does not defend against that. For untrusted hosts, use Postgres with restricted DB user permissions, or wait for v1.1's signed-audit feature.
+### Is mypy strict required for users?
 
-### How do I add a new tool to an existing agent?
+No. Strict typing is enforced **inside** the Lynx source for our quality. Users get the type annotations; you can use mypy strict or not.
 
-Decorate the function and the agent picks it up:
+### Can I use it inside FastAPI / Django / Flask?
 
-```python
-@tool(cost="low", reversible=True, scope=["db:read"])
-async def query_users(filter: str) -> list[dict]:
-    ...
-```
+Yes — see `examples/09_fastapi_service.py`, `11_flask_service.py`, `12_django_service.py`.
 
-If you're using the Anthropic/OpenAI adapters, the tool's signature is auto-translated into the model's tool schema. No prompt-engineering needed.
+### What about MCP?
 
-### Can multiple agents share the same store?
+`lynx.adapters.mcp.register_mcp_server(command) -> list[str]` returns the names of tools registered. In v2 this stays compatible; MCP servers are wrapped as `@tool`-decorated functions and bundled into a `ToolSet`.
 
-Yes. SQLite handles concurrent reads via WAL mode. For high-throughput multi-agent or multi-process setups, use Postgres.
+### How do I file a security issue?
 
-### What about secrets in the audit log?
+[GitHub Security Advisories](https://github.com/hadihonarvar/lynx/security/advisories/new). Do not file a public issue.
 
-The HTTP shadow already redacts `Authorization`, `X-API-Key`, `Cookie`. For tool arguments containing secrets, either:
+### Where's the license?
 
-1. Don't pass secrets as tool args (read them from env inside the tool)
-2. Wrap the tool with a redactor before registering it
-
-A first-class redaction layer is planned for v1.1.
-
-### Does Lynx work with sync code (Flask, Django < 4.1)?
-
-Yes — use `runtime.run_sync(...)`. Tool functions still need to be `async def`, but the outer runtime call can be sync.
-
-### Can I run Lynx inside FastAPI / Django / Flask?
-
-Yes — each gets a complete, runnable example:
-- **FastAPI** → [`examples/09_fastapi_service.py`](../examples/09_fastapi_service.py) (async, `await runtime.run(...)`)
-- **Flask** → [`examples/11_flask_service.py`](../examples/11_flask_service.py) (sync, `runtime.run_sync(...)`)
-- **Django (4.1+)** → [`examples/12_django_service.py`](../examples/12_django_service.py) (async views)
-
-### Does it need an API key?
-
-The runtime itself doesn't. The adapters (`ClaudeAgent`, `OpenAIAgent`) need their respective API keys via environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`). If you're using a scripted agent, no keys at all.
-
-### How do I handle approvals from Slack / email / a web UI?
-
-The approval broker is in-memory; the source of truth is the SQLite/Postgres `approval_requests` table. When `approve_required` fires, you get an `approval_id` back. Wire any UI you like to call `runtime.approve(approval_id, approver="...")`. After approval, call `runtime.resume(run_id)` to continue the agent.
-
-See the FastAPI example for a concrete webhook implementation.
-
-### Can I see what the agent did *before* a step ran?
-
-`lynx replay <run-id> --inspect` walks the step history without re-executing. To re-run from a step with edits: `lynx replay <run-id> --from-step 8 --edit args.cmd='ls'`.
-
-### What licenses does the project have?
-
-[Apache 2.0](../LICENSE). Patent-protective, permissive, compatible with most commercial use.
-
-### Where do I file a bug?
-
-[GitHub Issues](https://github.com/hadihonarvar/lynx/issues). Use the `[bug]` template. Include a minimal reproducer (Python file + policy.yaml).
-
-### Where do I propose a feature?
-
-[GitHub Issues](https://github.com/hadihonarvar/lynx/issues) with the `[feat]` template. For larger changes, please file an issue *before* writing the PR.
-
-### How do I report a security vulnerability?
-
-**Do not file a public issue.** Use [GitHub Security Advisories](https://github.com/hadihonarvar/lynx/security/advisories/new). See [`SECURITY.md`](../SECURITY.md).
+[Apache 2.0](../LICENSE).

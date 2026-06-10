@@ -1,51 +1,109 @@
-"""Tests for core type helpers — IDs, canonical JSON, audit event hashing."""
+"""Type-level tests: immutability, equality, builders."""
 
 from __future__ import annotations
 
-from lynx.core.types import (
-    AuditEvent,
-    canonical_json,
-    compute_idempotency_key,
-    new_id,
+import pytest
+
+from lynx import (
+    Budget,
+    Decision,
+    Principal,
+    ToolMetadata,
+    ToolSet,
+    Verdict,
+    tool,
 )
 
 
-def test_new_id_prefix() -> None:
-    assert new_id("T").startswith("T-")
-    assert new_id("R").startswith("R-")
-    # ULIDs are 26 chars; with prefix "X-" → 28
-    assert len(new_id("T")) == 28
+def test_principal_is_frozen() -> None:
+    p = Principal(kind="user", id="x")
+    with pytest.raises((AttributeError, TypeError)):
+        p.kind = "service"  # type: ignore[misc]
 
 
-def test_canonical_json_is_stable() -> None:
-    a = canonical_json({"b": 1, "a": 2})
-    b = canonical_json({"a": 2, "b": 1})
-    assert a == b == '{"a":2,"b":1}'
+def test_budget_default_steps() -> None:
+    assert Budget().steps == 50
 
 
-def test_idempotency_key_deterministic() -> None:
-    k1 = compute_idempotency_key("R1", 5, "shell", {"cmd": "ls"})
-    k2 = compute_idempotency_key("R1", 5, "shell", {"cmd": "ls"})
-    k3 = compute_idempotency_key("R1", 5, "shell", {"cmd": "lsa"})
-    assert k1 == k2
-    assert k1 != k3
+def test_verdict_string_form() -> None:
+    assert Verdict.ALLOW.value == "allow"
+    assert Verdict.DENY.value == "deny"
+    assert Verdict.DRY_RUN.value == "dry_run"
+    assert Verdict.APPROVE_REQUIRED.value == "approve_required"
+    assert Verdict.TRANSFORM.value == "transform"
 
 
-def test_audit_event_id_is_content_addressed() -> None:
-    e1 = AuditEvent.build(prev="0" * 64, run_id="R", seq=0, kind="x", body={"a": 1})
-    # Recompute id from canonical payload
-    import hashlib
+def test_decision_is_frozen() -> None:
+    d = Decision(verdict=Verdict.ALLOW)
+    with pytest.raises((AttributeError, TypeError)):
+        d.reason = "modified"  # type: ignore[misc]
 
-    recomputed = hashlib.sha256(
-        canonical_json(
-            {
-                "prev": e1.prev,
-                "run_id": e1.run_id,
-                "seq": e1.seq,
-                "kind": e1.kind,
-                "timestamp": e1.timestamp.isoformat(),
-                "body": e1.body,
-            }
-        ).encode()
-    ).hexdigest()
-    assert recomputed == e1.id
+
+def test_toolmetadata_is_frozen() -> None:
+    m = ToolMetadata(cost="low", reversible=True, scope=("filesystem:read",))
+    with pytest.raises((AttributeError, TypeError)):
+        m.reversible = False  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# ToolSet behavior
+# ---------------------------------------------------------------------------
+
+
+@tool(reversible=True, scope=("filesystem:read",))
+async def list_dir(path: str = ".") -> list[str]:
+    """List a directory."""
+    return []
+
+
+@tool(reversible=False, scope=("filesystem:write",))
+async def write_file(path: str, content: str) -> str:
+    """Write a file."""
+    return ""
+
+
+def test_toolset_from_functions() -> None:
+    ts = ToolSet.from_functions(list_dir, write_file)
+    assert ts.names() == ("list_dir", "write_file")
+    assert len(ts) == 2
+
+
+def test_toolset_rejects_undecorated() -> None:
+    async def plain_fn() -> int:
+        return 0
+
+    with pytest.raises(TypeError, match="not decorated"):
+        ToolSet.from_functions(plain_fn)
+
+
+def test_toolset_with_tool_returns_new_set() -> None:
+    ts1 = ToolSet.from_functions(list_dir)
+    ts2 = ts1.with_tool(write_file.__lynx_meta__)
+    assert ts1.names() == ("list_dir",)
+    assert ts2.names() == ("list_dir", "write_file")
+
+
+def test_toolset_without_tool() -> None:
+    ts = ToolSet.from_functions(list_dir, write_file)
+    ts2 = ts.without_tool("write_file")
+    assert ts2.names() == ("list_dir",)
+    assert ts.names() == ("list_dir", "write_file")
+
+
+def test_toolset_union() -> None:
+    a = ToolSet.from_functions(list_dir)
+    b = ToolSet.from_functions(write_file)
+    c = a.union(b)
+    assert c.names() == ("list_dir", "write_file")
+
+
+def test_toolset_get_missing_raises() -> None:
+    ts = ToolSet.from_functions(list_dir)
+    with pytest.raises(KeyError):
+        ts.get("missing")
+
+
+def test_toolset_mapping_is_read_only() -> None:
+    ts = ToolSet.from_functions(list_dir)
+    with pytest.raises(TypeError):
+        ts.tools["evil"] = None  # type: ignore[index]

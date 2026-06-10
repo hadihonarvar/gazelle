@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lynx-agent"
-description = "Framework-agnostic runtime that makes any AI agent safe and reliable enough to put in production: policy-gated execution, durable checkpointing, hash-chained audit."
+description = "A stateless, type-safe policy kernel for AI agent tool calls. Pure functions, immutable values, streaming events to user-owned sinks. No database. No globals."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -15,15 +15,16 @@ keywords = [
     "agents",
     "llm",
     "policy",
-    "reliability",
-    "audit",
-    "durable-execution",
+    "policy-engine",
+    "governance",
+    "streaming-events",
     "agentic",
     "claude",
     "openai",
     "langgraph",
     "crewai",
     "mcp",
+    "lynx",
 ]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
@@ -38,7 +39,6 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: Implementation :: CPython",
     "Topic :: Software Development :: Libraries",
-    "Topic :: Software Development :: Libraries :: Application Frameworks",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: System :: Monitoring",
     "Topic :: Security",
@@ -49,12 +49,7 @@ dynamic = ["version"]
 dependencies = [
     "click>=8.1",
     "pyyaml>=6.0",
-    "python-ulid>=2.2",
     "rich>=13.7",
-    "msgpack>=1.0",
-    # python-ulid's wheel imports typing_extensions but doesn't pin it as a
-    # runtime dep; declare it explicitly so `pip install lynx-agent` works alone.
-    "typing_extensions>=4.5",
 ]
 
 [project.optional-dependencies]
@@ -72,22 +67,12 @@ openai = ["openai>=1.40"]
 langgraph = ["langgraph>=0.2"]
 crewai = ["crewai>=0.40"]
 mcp = ["mcp>=1.0"]
-postgres = ["psycopg[binary]>=3.1"]
-prometheus = ["prometheus-client>=0.20"]
-otel = [
-    "opentelemetry-sdk>=1.27",
-    "opentelemetry-exporter-otlp-proto-http>=1.27",
-]
 all = [
     "anthropic>=0.30",
     "openai>=1.40",
     "langgraph>=0.2",
     "crewai>=0.40",
     "mcp>=1.0",
-    "psycopg[binary]>=3.1",
-    "prometheus-client>=0.20",
-    "opentelemetry-sdk>=1.27",
-    "opentelemetry-exporter-otlp-proto-http>=1.27",
 ]
 
 [project.scripts]
@@ -112,7 +97,6 @@ include = [
     "tests",
     "docs",
     "examples",
-    "benchmarks",
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
@@ -133,8 +117,6 @@ ignore = ["E501", "B008"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B017", "RUF012"]
-# Examples deliberately use proper typography (en-dashes) in plain-language
-# docstrings; class plans are PEP 8 "lookup table" style attributes.
 "examples/*" = ["RUF001", "RUF002", "RUF012"]
 
 [tool.mypy]
@@ -149,9 +131,6 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 filterwarnings = [
-    # asyncio.subprocess transports created inside the sandbox subprocess test
-    # outlive the event loop and emit a benign "Loop ... is closed" warning
-    # at GC. Doesn't affect correctness; only adds visual noise to CI.
     "ignore::pytest.PytestUnraisableExceptionWarning",
 ]
 
@@ -160,8 +139,7 @@ source = ["src/lynx"]
 branch = true
 omit = [
     "src/lynx/adapters/*",
-    "src/lynx/stores/postgres.py",
-    "src/lynx/observability.py",
+    "src/lynx/cli/*",
 ]
 
 [tool.coverage.report]

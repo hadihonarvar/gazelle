@@ -1,60 +1,100 @@
-"""Lynx — framework-agnostic policy-gated durable execution for AI agents.
+"""Lynx — a stateless, type-safe policy kernel for AI agent tool calls.
 
 The single source of truth for the package version is ``__version__`` below;
 ``pyproject.toml`` reads it dynamically (see ``[tool.hatch.version]``).
 """
 
+from lynx.approvals import (
+    ApprovalHandler,
+    auto_approve,
+    auto_deny,
+    callback_approval,
+    cli_prompt_approval,
+)
+from lynx.core.scheduler import run_agent
 from lynx.core.types import (
     ActionRequest,
     ActionResult,
+    ApprovalDecision,
+    ApprovalRequest,
     AuditEvent,
     Budget,
     Decision,
     ExecutionContext,
-    ModelCall,
+    FinalAnswer,
+    Message,
     Principal,
-    Run,
-    RunStatus,
-    Step,
-    Task,
+    RunResult,
+    ToolCall,
+    ToolDef,
     ToolMetadata,
+    ToolSet,
     Verdict,
 )
 from lynx.decorators import shadow, tool
-from lynx.policy import allow, approve_required, deny, dry_run, rule, transform
-from lynx.runtime import Runtime, runtime
-from lynx.sdk import AgentAction, FinalAnswer, Message, ToolCall
+from lynx.policy import (
+    PolicyBundle,
+    allow,
+    approve_required,
+    compile_policy,
+    deny,
+    dry_run,
+    load_policy_file,
+    transform,
+)
+from lynx.sdk import Agent, AgentAction
+from lynx.sinks import (
+    Sink,
+    callback_sink,
+    jsonl_sink,
+    multi_sink,
+    noop_sink,
+    stdout_sink,
+)
 
-__version__ = "1.0.1"
+__version__ = "2.0.0"
 
 __all__ = [
     "ActionRequest",
     "ActionResult",
+    "Agent",
     "AgentAction",
+    "ApprovalDecision",
+    "ApprovalHandler",
+    "ApprovalRequest",
     "AuditEvent",
     "Budget",
     "Decision",
     "ExecutionContext",
     "FinalAnswer",
     "Message",
-    "ModelCall",
+    "PolicyBundle",
     "Principal",
-    "Run",
-    "RunStatus",
-    "Runtime",
-    "Step",
-    "Task",
+    "RunResult",
+    "Sink",
     "ToolCall",
+    "ToolDef",
     "ToolMetadata",
+    "ToolSet",
     "Verdict",
     "__version__",
     "allow",
     "approve_required",
+    "auto_approve",
+    "auto_deny",
+    "callback_approval",
+    "callback_sink",
+    "cli_prompt_approval",
+    "compile_policy",
     "deny",
     "dry_run",
-    "rule",
-    "runtime",
+    "jsonl_sink",
+    "load_policy_file",
+    "multi_sink",
+    "noop_sink",
+    "run_agent",
     "shadow",
+    "stdout_sink",
     "tool",
     "transform",
 ]

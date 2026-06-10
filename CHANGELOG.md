@@ -1,114 +1,97 @@
 # Changelog
 
-All notable changes to Lynx will be documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
+All notable changes to Lynx will be documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
 ### Added
-- (nothing yet — open a PR!)
-
-### Changed
 - (nothing yet)
 
-### Fixed
-- (nothing yet)
+## [2.0.0] — 2026-06-10
 
-## [1.0.1] — 2026-06-10
+**Breaking rewrite.** Lynx becomes a stateless, type-safe policy kernel. Pure functions over immutable values. No SQLite. No globals. No leaks. v1.0.x is preserved on PyPI for users who need durability + audit storage.
 
-### Fixed
-- Aligned all docs with the v1.0 shipped surface area:
-  - README "Status: Alpha" → v1.0 SemVer commitment
-  - README "Roadmap" rewritten ("Shipped in v1.0" + "On the v1.x roadmap")
-  - README "Examples" + "Repo layout" updated to the 12 numbered examples
-  - `docs/threat-model.md`: kernel diagram label `GAZELLE` → `LYNX`,
-    `pre-1.0` status → `v1.0 shipped`, `(v1.1)` markers → `(v1.x)`,
-    deleted `janitor-policy.yaml` reference → `policies/devops.yaml`
-  - `docs/03-sdk-and-cli.md`: removed 7 unimplemented commands from
-    the live CLI surface; moved them to a clearly-labeled "v1.x roadmap"
-    table. Fixed `lynx version` → `lynx --version`.
-  - `docs/concepts.md`: sandbox container mode "planned for v0.8" → "v1.x roadmap"
-  - `docs/faq.md`: linked the per-framework examples (09 FastAPI / 11 Flask / 12 Django)
-  - `SECURITY.md`: rewrote "Supported versions" for the v1.0 SemVer commitment
+### Identity (changed)
 
-This is a docs-only release; the wheel contents are identical to v1.0.0
-except for the bundled documentation.
+> v1: "Policy + durable execution + hash-chained audit at the tool-call boundary."
+> v2: "**A stateless, type-safe policy kernel for AI agent tool calls.** Pure functions. Streaming events. No DB."
 
-[1.0.1]: https://github.com/hadihonarvar/lynx/releases/tag/v1.0.1
+### Public API
 
-## [1.0.0] — 2026-06-09
+#### Added
+- `run_agent(agent, task, *, tools, policy, sinks, on_approval, ...)` — the single entry point. Pure async function.
+- `ToolSet` — immutable mapping built from `@tool`-decorated functions; `ToolSet.from_functions(*fns)`, `.with_tool(...)`, `.union(...)`.
+- `Sink` protocol + `stdout_sink`, `jsonl_sink`, `noop_sink`, `multi_sink`, `callback_sink`.
+- `ApprovalHandler` protocol + `auto_approve`, `auto_deny`, `cli_prompt_approval`, `callback_approval`.
+- `ApprovalRequest`, `ApprovalDecision` frozen types.
+- `RunResult` minimal frozen type (`correlation_id`, `bundle_id`, `final_answer`, `error`, `steps_taken`).
+- `AuditEvent` simplified: `correlation_id`, `bundle_id`, `seq`, `kind`, `timestamp`, `body`.
+- `compile_policy(..., python_rules=...)` — explicit Python rules.
 
-First public release. All of the below shipped together; this is the surface area covered by the v1.0 SemVer commitment.
-
-### Core
-
-- Kernel types: `Task`, `Run`, `Step`, `ActionRequest`, `Decision`, `AuditEvent`, `ToolMetadata`, `ExecutionContext`, `Principal`, `Budget`, `ModelCall`, `ActionResult`.
-- Policy compiler + Policy Decision Point (PDP) — pure, deterministic, content-addressed bundles.
-- Action Mediator (PEP) — five verdicts: `allow`, `deny`, `dry_run`, `approve_required`, `transform`.
-- Scheduler with pre-execution checkpointing; crash-resume + approval-resume both correctly implemented.
-- Hash-chained audit log with tamper detection (`lynx audit verify`).
-
-### Public SDK
-
-- `@tool` decorator + `.shadow` for dry-run twins.
-- `Runtime.run / resume / replay / approve / deny`.
-- `Agent` protocol — one method, `async def step(conversation) -> ToolCall | FinalAnswer`.
-
-### Adapters
-
-- `lynx.adapters.anthropic_sdk.ClaudeAgent`
-- `lynx.adapters.openai_sdk.OpenAIAgent`
-- `lynx.adapters.langgraph_adapter.LangGraphAgent`
-- `lynx.adapters.crewai_adapter.CrewAIAgent`
-- `lynx.adapters.mcp.register_mcp_server`
-
-### Storage
-
-- `lynx.stores.sqlite.SQLiteStore` — full implementation, default.
-- `lynx.stores.postgres.PostgresStore` — production backend (Tasks / Runs / Audit; Steps + Approvals follow same translation pattern).
-
-### Shadow library
-
-- `lynx.shadows.shell_shadow`
-- `lynx.shadows.write_file_shadow`, `delete_file_shadow`
-- `lynx.shadows.sql_shadow`
-- `lynx.shadows.http_shadow` (with built-in `Authorization` header redaction)
-
-### Sandbox
-
-- `lynx.sandbox.run_in_subprocess` — POSIX subprocess sandbox with `RLIMIT_CPU`, `RLIMIT_AS`, stripped env, timeout.
-
-### Observability
-
-- `lynx.observability.enable_prometheus`
-- `lynx.observability.enable_otel`
+#### Removed
+- `Runtime` class (and the module-level `runtime` singleton).
+- `runtime.run / resume / approve / deny / get_run / get_steps / audit_chain / verify_audit / list_runs`.
+- SQLiteStore, PostgresStore, the whole `stores/` package.
+- `ApprovalBroker` — replaced by synchronous `on_approval` callback.
+- Global tool registry — replaced by explicit `ToolSet`.
+- Global `@policy.rule` registration — replaced by `python_rules=` argument.
+- `enable_prometheus`, `enable_otel`, `trace_step` — replaced by sinks (Prometheus/OTel sinks land in 2.1).
+- Pre-execution checkpointing.
+- Idempotency-key dedupe (`compute_idempotency_key`, `GENESIS_HASH`).
+- Hash-chained `AuditEvent.id` / `.prev`.
+- `Step.checkpoint_blob`, `Run.resume_token`, `Run.last_step_seq`, `RunStatus.PAUSED`.
 
 ### CLI
 
-- `lynx init / run / resume / ps / trace / approvals / approve / deny / audit verify / audit export / policy lint / policy bundle-id`
+#### Kept
+- `lynx --version`
+- `lynx init` — writes policy.yaml only (no `.lynx/`, no `lynx.toml`)
+- `lynx run <script>` — runs an async `main()` from any Python script
+- `lynx policy lint`
+- `lynx policy bundle-id`
+
+#### Removed
+- `lynx ps`
+- `lynx trace <run-id>`
+- `lynx audit verify / export`
+- `lynx resume`
+- `lynx approvals / approve / deny`
+
+### Type system
+
+- `mypy --strict` is now a hard CI gate (was soft in v1).
+- Every public type is `frozen=True, slots=True`.
+- Public API uses `Mapping` / `tuple` / `Sequence`, never `dict` / `list`.
+- Zero `Any` in the public API surface; internal `Any` only at adapter boundaries.
+
+### Dependencies
+
+- Dropped: `msgpack`, `python-ulid` (now using stdlib `uuid`).
+- Dropped extras: `[postgres]`.
+- Optional extras kept: `[anthropic]`, `[openai]`, `[langgraph]`, `[crewai]`, `[mcp]`.
+- New optional extras coming in 2.1: `[sinks-otel]`, `[sinks-prom]`, `[sinks-kafka]`, `[sinks-http]`.
+
+### Testing
+
+- Test suite slimmed from 57 v1 tests to 57 focused v2 tests (different tests).
+- Removed: store, audit-chain, resume, broker, idempotency tests.
+- Added: ToolSet immutability tests, sink contract tests, approval handler tests, `run_agent` integration tests.
 
 ### Documentation
 
-- Onboarding: `why-lynx.md`, `getting-started.md`, `concepts.md`, `cookbook.md`, `faq.md`.
-- Reference: `01-data-model.md`, `02-policy-language.md`, `03-sdk-and-cli.md`.
-- Threat model: `threat-model.md` (STRIDE-style).
-- 12 runnable examples: simple → complex → advanced → complete → integrations (FastAPI / Flask / Django).
+- New: `docs/v2-rfc.md` — the formal RFC this implementation follows.
+- Rewritten: README, examples (12), concepts, FAQ, cookbook.
+- Removed: data-model deep dive (the new model is small enough to live in the RFC).
 
-### Quality bar
+## [1.0.1] — 2026-06-10
 
-- 57 tests, ~1.2s suite, 9-job CI matrix (Linux / macOS / Windows × Python 3.11 / 3.12 / 3.13) + coverage.
-- ruff lint + format clean. `mypy --strict` runs (currently soft-gated on the test matrix; will be hard-gated in v1.1).
-- Apache-2.0 licensed. PEP 561 typed (`py.typed`). PEP 639 license metadata.
+Docs-only release. Aligned docs with v1.0 surface. See git history for details.
 
-### Public API surface guaranteed by SemVer
+## [1.0.0] — 2026-06-09
 
-- `lynx.tool`, `lynx.runtime`, `lynx.Runtime`, `lynx.shadow`, `lynx.allow/deny/dry_run/approve_required/transform/rule`.
-- `lynx.Agent`, `lynx.Message`, `lynx.ToolCall`, `lynx.FinalAnswer`, `lynx.AgentAction`.
-- `lynx.Task`, `lynx.Run`, `lynx.Step`, `lynx.ActionRequest`, `lynx.Decision`, `lynx.AuditEvent`, `lynx.Verdict`, `lynx.RunStatus`, `lynx.Principal`, `lynx.Budget`, `lynx.ToolMetadata`, `lynx.ExecutionContext`, `lynx.ModelCall`, `lynx.ActionResult`.
-- Adapters and stores have their own public-class interfaces guaranteed.
-- The YAML policy v1 grammar.
-- The CLI command surface and exit codes.
+First public release. v1 design preserved on PyPI for users needing durability + audit chain.
 
-Internal modules (`lynx.core.*`) are NOT part of the public API and may change in any minor release.
-
-[Unreleased]: https://github.com/hadihonarvar/lynx/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/hadihonarvar/lynx/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/hadihonarvar/lynx/releases/tag/v2.0.0
+[1.0.1]: https://github.com/hadihonarvar/lynx/releases/tag/v1.0.1
 [1.0.0]: https://github.com/hadihonarvar/lynx/releases/tag/v1.0.0

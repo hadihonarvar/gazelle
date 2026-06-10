@@ -1,32 +1,47 @@
-"""Core data types. Frozen dataclasses, no I/O.
+"""Core immutable types for Lynx v2.
 
-These six types are the entire vocabulary of the kernel. Every other module
-operates on them.
+Every type here is ``frozen=True, slots=True``. No mutation. No globals.
+Pure values that flow through the kernel and out to sinks.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
+import uuid
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Any, Literal
 
-from ulid import ULID
+__all__ = [
+    "ActionRequest",
+    "ActionResult",
+    "ApprovalDecision",
+    "ApprovalRequest",
+    "AuditEvent",
+    "Budget",
+    "Decision",
+    "ExecutionContext",
+    "FinalAnswer",
+    "Message",
+    "Principal",
+    "RunResult",
+    "ToolCall",
+    "ToolDef",
+    "ToolMetadata",
+    "ToolSet",
+    "Verdict",
+    "canonical_json",
+    "new_correlation_id",
+    "now_utc",
+]
+
 
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
-
-
-class RunStatus(StrEnum):
-    PENDING = "pending"
-    RUNNING = "running"
-    PAUSED = "paused"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
 
 
 class Verdict(StrEnum):
@@ -37,32 +52,27 @@ class Verdict(StrEnum):
     TRANSFORM = "transform"
 
 
-TERMINAL_STATUSES = frozenset({RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED})
-
-
 # ---------------------------------------------------------------------------
-# Identifier helpers
+# Time / IDs
 # ---------------------------------------------------------------------------
-
-
-def new_id(prefix: str) -> str:
-    """Return a ULID with the given single-letter prefix, e.g. T-01HF..."""
-    return f"{prefix}-{ULID()}"
 
 
 def now_utc() -> datetime:
     return datetime.now(UTC)
 
 
+def new_correlation_id() -> str:
+    """A UUID4 string. Used to group all events from one ``run_agent`` call."""
+    return str(uuid.uuid4())
+
+
 # ---------------------------------------------------------------------------
-# Supporting types
+# Principal / Budget / Context — all frozen
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class Principal:
-    """Who the agent is acting on behalf of."""
-
     kind: Literal["user", "service", "agent"]
     id: str
     name: str | None = None
@@ -70,18 +80,30 @@ class Principal:
 
 @dataclass(frozen=True, slots=True)
 class Budget:
-    """Hard caps enforced by the scheduler."""
-
     usd: float | None = None
     duration_seconds: int | None = None
     tokens: int | None = None
-    steps: int | None = None
+    steps: int | None = 50
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionContext:
+    principal: Principal
+    environment: str
+    workspace: str
+    correlation_id: str
+    step_seq: int
+    timestamp: datetime
+    extra: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
+
+
+# ---------------------------------------------------------------------------
+# Tool metadata + ToolDef + ToolSet (immutable)
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class ToolMetadata:
-    """Declared properties of a tool. Used by the PDP for policy matching."""
-
     cost: Literal["low", "medium", "high"]
     reversible: bool
     scope: tuple[str, ...]
@@ -90,238 +112,192 @@ class ToolMetadata:
 
 
 @dataclass(frozen=True, slots=True)
-class ExecutionContext:
-    """Per-action context. Set by the kernel, not the tool."""
+class ToolDef:
+    """A tool ready to be passed to ``run_agent``.
 
-    principal: Principal
-    environment: str
-    workspace: str
-    run_id: str
-    step_seq: int
-    timestamp: datetime
-    extra: dict[str, Any] = field(default_factory=dict)
+    Holds the (real) function, an optional shadow, and the declared metadata.
+    All references; no execution state.
+    """
 
-
-@dataclass(frozen=True, slots=True)
-class ModelCall:
-    """Record of one LLM invocation. Used for cost and replay determinism."""
-
-    provider: str
-    model: str
-    input_tokens: int
-    output_tokens: int
-    cost_usd: float
-    duration_ms: int
-    prompt_hash: str
+    name: str
+    description: str
+    fn: Callable[..., Awaitable[Any]]
+    shadow_fn: Callable[..., Awaitable[Any]] | None
+    metadata: ToolMetadata
 
 
 @dataclass(frozen=True, slots=True)
-class ActionResult:
-    """Outcome of executing (or shadow-executing) a tool."""
+class ToolSet:
+    """An immutable mapping of tool name to ToolDef.
 
-    ok: bool
-    value: Any | None = None
-    error: str | None = None
-    duration_ms: int = 0
-    side_effects: tuple[str, ...] = ()
+    Build with ``ToolSet.from_functions(*fns)``; operations return new sets.
+    """
+
+    tools: Mapping[str, ToolDef] = field(default_factory=lambda: MappingProxyType({}))
+
+    @classmethod
+    def from_functions(cls, *fns: Callable[..., Awaitable[Any]]) -> ToolSet:
+        """Build a ToolSet from functions decorated with ``@tool``.
+
+        Each function must carry ``__lynx_meta__`` (set by the decorator).
+        Functions without that attribute raise ``TypeError``.
+        """
+        out: dict[str, ToolDef] = {}
+        for fn in fns:
+            meta = getattr(fn, "__lynx_meta__", None)
+            if meta is None:
+                raise TypeError(
+                    f"{fn.__name__} is not decorated with @tool — cannot include in ToolSet"
+                )
+            out[meta.name] = meta
+        return cls(tools=MappingProxyType(out))
+
+    def with_tool(self, t: ToolDef) -> ToolSet:
+        return ToolSet(tools=MappingProxyType({**self.tools, t.name: t}))
+
+    def without_tool(self, name: str) -> ToolSet:
+        new = dict(self.tools)
+        new.pop(name, None)
+        return ToolSet(tools=MappingProxyType(new))
+
+    def union(self, other: ToolSet) -> ToolSet:
+        return ToolSet(tools=MappingProxyType({**self.tools, **other.tools}))
+
+    def names(self) -> tuple[str, ...]:
+        return tuple(sorted(self.tools.keys()))
+
+    def get(self, name: str) -> ToolDef:
+        if name not in self.tools:
+            raise KeyError(f"Unknown tool: {name}")
+        return self.tools[name]
+
+    def __len__(self) -> int:
+        return len(self.tools)
 
 
 # ---------------------------------------------------------------------------
-# The six core types
+# Agent conversation primitives — frozen
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
-class Task:
-    """The user's stated goal."""
-
-    id: str
-    goal: str
-    created_at: datetime
-    created_by: Principal
-    policy_bundle_id: str
-    budget: Budget
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    @classmethod
-    def create(
-        cls,
-        goal: str,
-        created_by: Principal,
-        policy_bundle_id: str,
-        budget: Budget | None = None,
-        metadata: dict[str, Any] | None = None,
-    ) -> Task:
-        return cls(
-            id=new_id("T"),
-            goal=goal,
-            created_at=now_utc(),
-            created_by=created_by,
-            policy_bundle_id=policy_bundle_id,
-            budget=budget or Budget(),
-            metadata=metadata or {},
-        )
+class Message:
+    role: Literal["system", "user", "assistant", "tool"]
+    content: str
+    name: str | None = None
+    tool_call_id: str | None = None
 
 
-@dataclass
-class Run:
-    """One execution attempt of a Task."""
+@dataclass(frozen=True, slots=True)
+class ToolCall:
+    tool: str
+    args: Mapping[str, Any]
+    call_id: str = ""
 
-    id: str
-    task_id: str
-    status: RunStatus
-    started_at: datetime
-    ended_at: datetime | None = None
-    resume_token: str | None = None
-    last_step_seq: int = -1
-    error: str | None = None
 
-    @classmethod
-    def create(cls, task_id: str) -> Run:
-        return cls(
-            id=new_id("R"),
-            task_id=task_id,
-            status=RunStatus.PENDING,
-            started_at=now_utc(),
-        )
+@dataclass(frozen=True, slots=True)
+class FinalAnswer:
+    text: str
 
-    def is_terminal(self) -> bool:
-        return self.status in TERMINAL_STATUSES
+
+# ---------------------------------------------------------------------------
+# Request / Decision / Result — frozen
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class ActionRequest:
-    """A proposed tool call. Input to the PDP."""
-
     tool: str
-    args: dict[str, Any]
+    args: Mapping[str, Any]
     declared: ToolMetadata
     context: ExecutionContext
-    idempotency_key: str
-
-    @classmethod
-    def build(
-        cls,
-        tool: str,
-        args: dict[str, Any],
-        declared: ToolMetadata,
-        context: ExecutionContext,
-    ) -> ActionRequest:
-        key = compute_idempotency_key(
-            run_id=context.run_id,
-            seq=context.step_seq,
-            tool=tool,
-            args=args,
-        )
-        return cls(
-            tool=tool,
-            args=args,
-            declared=declared,
-            context=context,
-            idempotency_key=key,
-        )
 
 
 @dataclass(frozen=True, slots=True)
 class Decision:
-    """The PDP's verdict on an ActionRequest."""
-
     verdict: Verdict
     reason: str = ""
     matched_rules: tuple[str, ...] = ()
     approvers: tuple[str, ...] = ()
-    transform_args: dict[str, Any] | None = None
+    transform_args: Mapping[str, Any] | None = None
     timeout_seconds: int | None = None
 
 
-@dataclass
-class Step:
-    """One iteration of the agent loop."""
+@dataclass(frozen=True, slots=True)
+class ActionResult:
+    ok: bool
+    value: Any | None = None
+    error: str | None = None
+    duration_ms: int = 0
 
-    id: str
-    run_id: str
-    seq: int
-    started_at: datetime
-    ended_at: datetime
-    checkpoint_blob: bytes
-    model_call: ModelCall | None = None
-    action: ActionRequest | None = None
-    decision: Decision | None = None
-    result: ActionResult | None = None
+
+# ---------------------------------------------------------------------------
+# Approval types — frozen, sync-handler-only
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalRequest:
+    request: ActionRequest
+    decision: Decision
+    correlation_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ApprovalDecision:
+    granted: bool
+    approver: str
+    reason: str = ""
+
+
+# ---------------------------------------------------------------------------
+# Audit event — sinks consume this; no hash chain
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
 class AuditEvent:
-    """Append-only, hash-chained event in the run's audit log."""
-
-    id: str
-    prev: str
-    run_id: str
+    correlation_id: str
+    bundle_id: str
     seq: int
     kind: str
     timestamp: datetime
-    body: dict[str, Any]
-    signature: bytes | None = None
-
-    @classmethod
-    def build(
-        cls,
-        prev: str,
-        run_id: str,
-        seq: int,
-        kind: str,
-        body: dict[str, Any],
-    ) -> AuditEvent:
-        timestamp = now_utc()
-        normalized = {
-            "prev": prev,
-            "run_id": run_id,
-            "seq": seq,
-            "kind": kind,
-            "timestamp": timestamp.isoformat(),
-            "body": body,
-        }
-        event_id = hashlib.sha256(canonical_json(normalized).encode()).hexdigest()
-        return cls(
-            id=event_id,
-            prev=prev,
-            run_id=run_id,
-            seq=seq,
-            kind=kind,
-            timestamp=timestamp,
-            body=body,
-        )
-
-
-GENESIS_HASH = "0" * 64
+    body: Mapping[str, Any]
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Final result of a run — frozen
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class RunResult:
+    correlation_id: str
+    bundle_id: str
+    final_answer: str | None = None
+    error: str | None = None
+    steps_taken: int = 0
+
+
+# ---------------------------------------------------------------------------
+# Canonical JSON (still needed for bundle_id hashing in policy module)
 # ---------------------------------------------------------------------------
 
 
 def canonical_json(obj: Any) -> str:
-    """Sorted-keys, no-whitespace JSON. Approximates RFC 8785 / JCS."""
+    """Sorted-keys, no-whitespace JSON. RFC 8785 / JCS-ish."""
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), default=_default)
 
 
 def _default(o: Any) -> Any:
     if isinstance(o, datetime):
         return o.isoformat()
+    if isinstance(o, (set, frozenset, tuple)):
+        return list(o)
+    if isinstance(o, Mapping):
+        return dict(o)
     if hasattr(o, "__dataclass_fields__"):
         from dataclasses import asdict
 
         return asdict(o)
-    if isinstance(o, (set, frozenset, tuple)):
-        return list(o)
     raise TypeError(f"Cannot canonicalize {type(o).__name__}")
-
-
-def compute_idempotency_key(run_id: str, seq: int, tool: str, args: dict[str, Any]) -> str:
-    """Deterministic idempotency key for an action.
-
-    Same (run_id, seq, tool, args) always produces the same key.
-    """
-    payload = canonical_json({"run_id": run_id, "seq": seq, "tool": tool, "args": args})
-    return hashlib.sha256(payload.encode()).hexdigest()

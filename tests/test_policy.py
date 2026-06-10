@@ -1,25 +1,32 @@
-"""Unit tests for the policy compiler and PDP. Pure, fast, no I/O."""
+"""Policy engine (PDP) tests — pure function behavior."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 
-from lynx.core.policy import compile_policy, evaluate
-from lynx.core.types import (
+import pytest
+
+from lynx import (
     ActionRequest,
+    Decision,
     ExecutionContext,
     Principal,
     ToolMetadata,
     Verdict,
+    allow,
+    compile_policy,
+    deny,
 )
+from lynx.policy import evaluate
 
 
 def _ctx(env: str = "dev") -> ExecutionContext:
     return ExecutionContext(
-        principal=Principal(kind="user", id="tester"),
+        principal=Principal(kind="user", id="t"),
         environment=env,
         workspace="/tmp",
-        run_id="R-test",
+        correlation_id="c-test",
         step_seq=0,
         timestamp=datetime.now(UTC),
     )
@@ -27,19 +34,19 @@ def _ctx(env: str = "dev") -> ExecutionContext:
 
 def _req(
     tool: str = "shell",
-    args: dict | None = None,
+    args: Mapping[str, object] | None = None,
+    *,
     reversible: bool = True,
-    scope: tuple = ("filesystem:write",),
     has_shadow: bool = False,
     env: str = "dev",
 ) -> ActionRequest:
-    return ActionRequest.build(
+    return ActionRequest(
         tool=tool,
         args=args or {},
         declared=ToolMetadata(
             cost="low",
             reversible=reversible,
-            scope=scope,
+            scope=("compute:exec",),
             has_shadow=has_shadow,
         ),
         context=_ctx(env=env),
@@ -50,55 +57,45 @@ def test_simple_allow_deny() -> None:
     bundle = compile_policy(
         """
 version: 1
-defaults:
-  on_no_match: allow
+defaults: { on_no_match: allow }
 rules:
-  - id: block-rm-root
+  - id: block
     match:
       tool: shell
       args.cmd.matches: '^rm -rf /$'
     decision: deny
-    reason: rm -rf / is forbidden
+    reason: forbidden
         """
     )
-    deny_decision = evaluate(bundle, _req(args={"cmd": "rm -rf /"}), _ctx())
-    assert deny_decision.verdict == Verdict.DENY
-    assert "forbidden" in deny_decision.reason
+    d1 = evaluate(bundle, _req(args={"cmd": "rm -rf /"}), _ctx())
+    assert d1.verdict == Verdict.DENY
+    assert "forbidden" in d1.reason
 
-    allow_decision = evaluate(bundle, _req(args={"cmd": "ls"}), _ctx())
-    assert allow_decision.verdict == Verdict.ALLOW
+    d2 = evaluate(bundle, _req(args={"cmd": "ls"}), _ctx())
+    assert d2.verdict == Verdict.ALLOW
 
 
 def test_first_match_wins() -> None:
     bundle = compile_policy(
         """
 version: 1
-defaults:
-  on_no_match: deny
+defaults: { on_no_match: deny }
 rules:
   - id: specific-allow
     priority: 10
-    match:
-      tool: shell
-      args.cmd.matches: '^curl http://localhost'
+    match: { tool: shell, args.cmd.matches: '^curl http://localhost' }
     decision: allow
   - id: general-deny
     priority: 5
-    match:
-      tool: shell
-      args.cmd.matches: '^curl '
+    match: { tool: shell, args.cmd.matches: '^curl ' }
     decision: deny
         """
     )
-    d = evaluate(bundle, _req(args={"cmd": "curl http://localhost/healthz"}), _ctx())
+    d = evaluate(bundle, _req(args={"cmd": "curl http://localhost/health"}), _ctx())
     assert d.verdict == Verdict.ALLOW
-    assert d.matched_rules == ("specific-allow",)
-
-    d2 = evaluate(bundle, _req(args={"cmd": "curl https://example.com"}), _ctx())
-    assert d2.verdict == Verdict.DENY
 
 
-def test_irreversible_without_shadow_defaults_to_approve() -> None:
+def test_default_on_missing_shadow() -> None:
     bundle = compile_policy(
         """
 version: 1
@@ -112,58 +109,94 @@ rules: []
     assert d.verdict == Verdict.APPROVE_REQUIRED
 
 
-def test_predicates_compose() -> None:
+def test_python_rules_explicit_not_global() -> None:
+    """Python rules are passed in at compile time, not via a global registry."""
+
+    def block_in_prod(req: ActionRequest, ctx: ExecutionContext) -> Decision | None:
+        if ctx.environment == "prod":
+            return deny(reason="prod is locked")
+        return None
+
     bundle = compile_policy(
-        """
-version: 1
-defaults:
-  on_no_match: allow
-predicates:
-  in_prod: { context.environment: prod }
-  shelly:  { tool: shell }
-rules:
-  - id: prod-shell-deny
-    match:
-      all_of: [in_prod, shelly]
-    decision: deny
-    reason: no shell in prod
-        """
+        "version: 1\ndefaults: { on_no_match: allow }\nrules: []",
+        python_rules=(block_in_prod,),
+        python_rule_priorities=(("block_in_prod", 100),),
     )
-    d = evaluate(bundle, _req(env="prod", args={"cmd": "ls"}), _ctx(env="prod"))
-    assert d.verdict == Verdict.DENY
 
-    d2 = evaluate(bundle, _req(env="dev", args={"cmd": "ls"}), _ctx(env="dev"))
-    assert d2.verdict == Verdict.ALLOW
+    d_prod = evaluate(bundle, _req(env="prod"), _ctx(env="prod"))
+    assert d_prod.verdict == Verdict.DENY
+
+    d_dev = evaluate(bundle, _req(env="dev"), _ctx(env="dev"))
+    assert d_dev.verdict == Verdict.ALLOW
 
 
-def test_default_deny_no_match() -> None:
+def test_python_rule_returning_none_falls_through() -> None:
+    def maybe_deny(req: ActionRequest, ctx: ExecutionContext) -> Decision | None:
+        return None  # never matches
+
     bundle = compile_policy(
-        """
-version: 1
-defaults:
-  on_no_match: deny
-rules: []
-        """
+        "version: 1\ndefaults: { on_no_match: allow }\nrules: []",
+        python_rules=(maybe_deny,),
     )
-    d = evaluate(bundle, _req(args={"cmd": "anything"}), _ctx())
-    assert d.verdict == Verdict.DENY
-
-
-def test_scope_contains_any() -> None:
-    bundle = compile_policy(
-        """
-version: 1
-defaults:
-  on_no_match: deny
-rules:
-  - id: read-only-ok
-    match:
-      declared.scope.contains_any: ["filesystem:read", "net:read"]
-    decision: allow
-        """
-    )
-    d = evaluate(bundle, _req(scope=("filesystem:read",), reversible=True), _ctx())
+    d = evaluate(bundle, _req(), _ctx())
     assert d.verdict == Verdict.ALLOW
 
-    d2 = evaluate(bundle, _req(scope=("filesystem:write",), reversible=True), _ctx())
-    assert d2.verdict == Verdict.DENY
+
+def test_pdp_is_deterministic() -> None:
+    """Same inputs → same Decision, always."""
+    bundle = compile_policy(
+        """
+version: 1
+defaults: { on_no_match: allow }
+rules:
+  - id: r
+    match: { tool: shell }
+    decision: deny
+    reason: no shells
+        """
+    )
+    req = _req()
+    ctx = _ctx()
+    d1 = evaluate(bundle, req, ctx)
+    d2 = evaluate(bundle, req, ctx)
+    d3 = evaluate(bundle, req, ctx)
+    assert d1 == d2 == d3
+
+
+def test_redos_guard_rejects_dangerous_regex() -> None:
+    with pytest.raises((ValueError, Exception)):
+        compile_policy(
+            """
+version: 1
+defaults: { on_no_match: deny }
+rules:
+  - id: redos
+    match:
+      tool: shell
+      args.cmd.matches: '(a+)+b'
+    decision: deny
+            """
+        )
+
+
+def test_overlong_regex_rejected() -> None:
+    long_pat = "a" * 1500
+    with pytest.raises((ValueError, Exception)):
+        compile_policy(
+            f"""
+version: 1
+defaults: {{ on_no_match: deny }}
+rules:
+  - id: too-long
+    match:
+      tool: shell
+      args.cmd.matches: "{long_pat}"
+    decision: deny
+            """
+        )
+
+
+def test_decision_constructors() -> None:
+    assert allow().verdict == Verdict.ALLOW
+    assert deny("no").verdict == Verdict.DENY
+    assert deny("no").reason == "no"
