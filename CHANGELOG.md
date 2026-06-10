@@ -13,6 +13,28 @@ All notable changes to Lynx will be documented here. The format follows [Keep a 
 ### Fixed
 - (nothing yet)
 
+## [1.0.1] — 2026-06-10
+
+### Fixed
+- Aligned all docs with the v1.0 shipped surface area:
+  - README "Status: Alpha" → v1.0 SemVer commitment
+  - README "Roadmap" rewritten ("Shipped in v1.0" + "On the v1.x roadmap")
+  - README "Examples" + "Repo layout" updated to the 12 numbered examples
+  - `docs/threat-model.md`: kernel diagram label `GAZELLE` → `LYNX`,
+    `pre-1.0` status → `v1.0 shipped`, `(v1.1)` markers → `(v1.x)`,
+    deleted `janitor-policy.yaml` reference → `policies/devops.yaml`
+  - `docs/03-sdk-and-cli.md`: removed 7 unimplemented commands from
+    the live CLI surface; moved them to a clearly-labeled "v1.x roadmap"
+    table. Fixed `lynx version` → `lynx --version`.
+  - `docs/concepts.md`: sandbox container mode "planned for v0.8" → "v1.x roadmap"
+  - `docs/faq.md`: linked the per-framework examples (09 FastAPI / 11 Flask / 12 Django)
+  - `SECURITY.md`: rewrote "Supported versions" for the v1.0 SemVer commitment
+
+This is a docs-only release; the wheel contents are identical to v1.0.0
+except for the bundled documentation.
+
+[1.0.1]: https://github.com/hadihonarvar/lynx/releases/tag/v1.0.1
+
 ## [1.0.0] — 2026-06-09
 
 First public release. All of the below shipped together; this is the surface area covered by the v1.0 SemVer commitment.
@@ -88,5 +110,5 @@ First public release. All of the below shipped together; this is the surface are
 
 Internal modules (`lynx.core.*`) are NOT part of the public API and may change in any minor release.
 
-[Unreleased]: https://github.com/hadihonarvar/lynx/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/hadihonarvar/lynx/compare/v1.0.1...HEAD
 [1.0.0]: https://github.com/hadihonarvar/lynx/releases/tag/v1.0.0
