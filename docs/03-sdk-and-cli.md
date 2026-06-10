@@ -192,45 +192,44 @@ Equivalent to importing the file, finding the `agent` and calling `runtime.run(a
 
 ```
 lynx ps                          # active + recent runs
-lynx show <run-id>               # full run details
 lynx trace <run-id>              # step-by-step trace
-lynx trace <run-id> --tail       # follow live
 lynx audit verify <run-id>       # check hash chain
 lynx audit export <run-id> > audit.jsonl
 ```
 
-### Approvals
+### Approvals + Resume
 
 ```
-lynx approvals                   # list pending
-lynx approve <request-id> [--reason ...]
-lynx deny <request-id> [--reason ...]
-```
-
-### Replay
-
-```
-lynx replay <run-id>             # re-run from scratch
-lynx replay <run-id> --from-step 8 --edit args.cmd='ls'
-lynx replay <run-id> --inspect   # no execution, just walk
+lynx approvals                            # list pending
+lynx approve <approval-id> [--approver ...]
+lynx deny <approval-id> [--approver ...] [--reason ...]
+lynx resume <run-id> <script>             # resume a paused run after approval
 ```
 
 ### Policy
 
 ```
-lynx policy lint [policy.yaml]
-lynx policy test [fixtures/]
-lynx policy show [policy.yaml]   # compiled bundle, pretty-printed
-lynx policy bundle-id [policy.yaml]   # prints the content-addressed ID
+lynx policy lint [policy.yaml]            # compile-check the policy file
+lynx policy bundle-id [policy.yaml]       # print content-addressed bundle ID
 ```
 
-### Debug
+### Version
 
 ```
-lynx version
-lynx config              # effective config (env vars overlaid on toml)
-lynx db migrate          # apply schema migrations
+lynx --version
 ```
+
+### On the v1.x roadmap (not yet implemented)
+
+| Command | What it'd do |
+|---------|-------------|
+| `lynx replay <run-id> --from-step N --edit ...` | Re-execute from any past step with optional edits |
+| `lynx show <run-id>` | Full run details (status, principal, task, error) |
+| `lynx trace <run-id> --tail` | Follow a running run live |
+| `lynx policy show` | Pretty-print the compiled bundle |
+| `lynx policy test fixtures/` | Run fixture-based policy tests |
+| `lynx config` | Show effective config (env vars overlaid on toml) |
+| `lynx db migrate` | Apply schema migrations across backend changes |
 
 ---
 

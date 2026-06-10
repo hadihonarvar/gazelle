@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Lynx is pre-1.0. We provide security fixes for the **latest minor release only**. From v1.0 onwards, we will support the latest two minor releases.
+Lynx follows SemVer from v1.0 onwards. We provide security fixes for the **latest two minor releases** within the current major version. Major-version bumps include a documented overlap so users can upgrade safely.
 
 ## Reporting a vulnerability
 

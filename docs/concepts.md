@@ -113,7 +113,7 @@ A human then calls `lynx approve <approval-id>` (or hits a webhook). When the ag
 
 ## Sandbox
 
-Optional isolation for individual tools. Today: `none` (in-process) or `subprocess` (fresh Python interpreter, stripped env, ulimits, timeout). Container mode is planned for v0.8.
+Optional isolation for individual tools. Today: `none` (in-process) or `subprocess` (fresh Python interpreter, stripped env, ulimits, timeout). Container mode is on the v1.x roadmap.
 
 ## Store
 

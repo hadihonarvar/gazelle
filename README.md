@@ -187,8 +187,12 @@ lynx/
 │   ├── runtime.py                ← public Runtime facade
 │   └── sdk.py                    ← Agent protocol + Message types
 ├── tests/
-├── examples/
-│   └── hello_agent.py
+├── examples/                    ← 12 numbered examples + framework integrations
+│   ├── 01_hello_allow.py ... 10_devops_assistant.py
+│   ├── 11_flask_service.py
+│   ├── 12_django_service.py
+│   └── policies/                ← multi-rule YAMLs used by examples 07/08/10
+├── benchmarks/
 └── pyproject.toml
 ```
 
@@ -198,12 +202,25 @@ lynx/
 
 ## Roadmap
 
-- **v0.1 (this release)** — MVP: SQLite, YAML policy, allow/deny/approve/dry_run/transform, audit chain, CLI, scripted agent example.
-- **v0.5** — Crash-resume durability, shadow library (shell, SQL, HTTP, AWS), `replay --edit`.
-- **v1.0** — LangGraph / CrewAI / OpenAI Agents SDK / MCP adapters; Postgres store; webhook & Slack approval transports; gRPC sidecar mode; HSM-signed audit.
-- **v1.5** — Control plane: multi-tenant policy distribution, dashboards, cross-run analytics, governance. (Commercial layer.)
+**Shipped in v1.0** (current release):
+- Core kernel: policy PDP, action mediator, scheduler with pre-execution checkpointing
+- All five verdicts: allow / deny / dry_run / approve_required / transform
+- Hash-chained, tamper-evident audit log with `lynx audit verify`
+- Stores: SQLite (default), Postgres (production)
+- Adapters: Anthropic Claude, OpenAI, LangGraph, CrewAI, MCP
+- Shadow library: shell, filesystem, SQL, HTTP
+- Subprocess sandbox with POSIX rlimits
+- Crash-resume + approval-resume
+- Prometheus + OpenTelemetry hooks
+- Full CLI + 12 examples + STRIDE threat model
 
-See `docs/00-execution-plan.md` for the week-by-week plan.
+**On the table for v1.x** (no firm dates):
+- `lynx replay <run-id> --from-step N --edit` for run inspection
+- Container sandbox mode (the v1.0 sandbox is POSIX-subprocess only)
+- Webhook + Slack approval transports
+- gRPC sidecar mode for non-Python apps
+- HSM-signed audit events (current chain is hash-only)
+- Control-plane / multi-tenant dashboards (probably commercial)
 
 ---
 
@@ -240,18 +257,24 @@ Reference docs:
 | [Policy language](docs/02-policy-language.md) | Full YAML grammar + predicates + Python escape hatch |
 | [SDK + CLI](docs/03-sdk-and-cli.md) | The public Python API + every CLI command |
 | [Threat model](docs/threat-model.md) | STRIDE analysis + guarantees + non-goals |
-| [How v0.1 was built](docs/00-execution-plan.md) | The MVP execution plan (historical) |
+| [How v1.0 was built](docs/00-execution-plan.md) | The execution plan that got us to v1.0 (historical) |
 
-Examples:
+Examples — a learning path of 12. Each lead with a plain-language SCENARIO so the use case is clear:
 
-| Demo | What it shows |
-|------|--------------|
-| [`hello_agent.py`](examples/hello_agent.py) | Minimal scripted agent — the smallest end-to-end loop |
-| [`file_janitor.py`](examples/file_janitor.py) | Real filesystem demo: allow / deny / dry_run with real files |
-| [`refund_agent.py`](examples/refund_agent.py) | Customer-support refund agent — demonstrates `approve_required` |
-| [`claude_janitor.py`](examples/claude_janitor.py) | Real Claude agent driving the file demo |
-| [`openai_janitor.py`](examples/openai_janitor.py) | Same demo, OpenAI GPT |
-| [`fastapi_server.py`](examples/fastapi_server.py) | Drop-in FastAPI integration |
+| # | Demo | What it shows |
+|---|------|--------------|
+| 01 | [`01_hello_allow.py`](examples/01_hello_allow.py) | Smallest possible loop. ALLOW verdict. |
+| 02 | [`02_block_dangerous.py`](examples/02_block_dangerous.py) | Block `rm -rf /` before it can run. DENY verdict. |
+| 03 | [`03_preview_writes.py`](examples/03_preview_writes.py) | See a file's contents BEFORE saving. DRY_RUN verdict. |
+| 04 | [`04_human_approval.py`](examples/04_human_approval.py) | Pause for human sign-off on irreversible actions. |
+| 05 | [`05_real_llm_blocked.py`](examples/05_real_llm_blocked.py) | Real Claude / GPT agent gated by Lynx. |
+| 06 | [`06_compliance_audit.py`](examples/06_compliance_audit.py) | Hash-chain verification + tamper detection. |
+| 07 | [`07_refund_workflow.py`](examples/07_refund_workflow.py) | Multi-tier refund rules (allow / approve / deny). |
+| 08 | [`08_sql_transform.py`](examples/08_sql_transform.py) | TRANSFORM verdict auto-injects `tenant_id` into SQL. |
+| 09 | [`09_fastapi_service.py`](examples/09_fastapi_service.py) | Drop-in FastAPI integration. |
+| 10 | [`10_devops_assistant.py`](examples/10_devops_assistant.py) | All five verdicts in one realistic DevOps scenario. |
+| 11 | [`11_flask_service.py`](examples/11_flask_service.py) | Same as 09 but Flask (sync via `runtime.run_sync`). |
+| 12 | [`12_django_service.py`](examples/12_django_service.py) | Same as 09 but Django (async views, 4.1+). |
 
 See [`examples/README.md`](examples/README.md) for the full index + how to run them.
 
@@ -259,7 +282,9 @@ See [`examples/README.md`](examples/README.md) for the full index + how to run t
 
 ## Status
 
-Alpha. APIs may change before v1.0. Use in production at your own risk; report issues liberally.
+**v1.0 — public API committed.** SemVer from here: minor versions add features, patch versions fix bugs, major versions are reserved for breaking changes with documented deprecation cycles. Internal modules (`lynx.core.*`) are not part of the public API and may change in any minor release.
+
+Production-ready for the documented scope (SQLite store, all five adapters, subprocess sandbox, hash-chained audit). See [`CHANGELOG.md`](CHANGELOG.md) for the full v1.0 surface area covered by the SemVer commitment.
 
 ---
 

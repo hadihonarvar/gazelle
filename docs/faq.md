@@ -125,7 +125,10 @@ Yes — use `runtime.run_sync(...)`. Tool functions still need to be `async def`
 
 ### Can I run Lynx inside FastAPI / Django / Flask?
 
-Yes. See [`examples/fastapi_server.py`](../examples/fastapi_server.py) for the cleanest integration. Django + Flask snippets are in the same file's comments.
+Yes — each gets a complete, runnable example:
+- **FastAPI** → [`examples/09_fastapi_service.py`](../examples/09_fastapi_service.py) (async, `await runtime.run(...)`)
+- **Flask** → [`examples/11_flask_service.py`](../examples/11_flask_service.py) (sync, `runtime.run_sync(...)`)
+- **Django (4.1+)** → [`examples/12_django_service.py`](../examples/12_django_service.py) (async views)
 
 ### Does it need an API key?
 

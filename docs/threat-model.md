@@ -2,7 +2,7 @@
 
 A structured walkthrough of what Lynx defends against, what it does *not*, and how the trust boundaries are drawn. Format follows the STRIDE framework: **S**poofing, **T**ampering, **R**epudiation, **I**nformation disclosure, **D**enial of service, **E**levation of privilege.
 
-> Status: pre-1.0. Mitigations marked **(v1.0)** are landed; **(v1.1)** are roadmap.
+> Status: v1.0 shipped. Mitigations marked **(v1.0)** are landed; **(v1.x)** are on the post-launch roadmap.
 
 ---
 
@@ -17,7 +17,7 @@ A structured walkthrough of what Lynx defends against, what it does *not*, and h
                            │  ① ActionRequest
                            ▼
   ┌────────────────────────────────────────────┐
-  │  GAZELLE KERNEL (trusted)                  │
+  │  LYNX KERNEL (trusted)                     │
   │  - PDP, mediator, scheduler, audit         │
   │  - same OS process as the operator         │
   └────────────────────────┬───────────────────┘
@@ -50,7 +50,7 @@ The **agent is untrusted**. The **kernel is trusted**. The **tool author and ope
 | Threat | Mitigation |
 |--------|-----------|
 | Agent claims to be a different principal | Principal is set by the runtime caller; agent has no input into it. **(v1.0)** |
-| Approval forged by attacker who reads DB | Approval rows include the `granted_by` principal and a resolved-at timestamp. For production, signed approvals via HSM are planned. **(v1.1)** |
+| Approval forged by attacker who reads DB | Approval rows include the `granted_by` principal and a resolved-at timestamp. For production, signed approvals via HSM are planned. **(v1.x)** |
 | Adapter impersonates a different framework | Adapter modules are explicit imports; no auto-loading. Operator chooses which adapter to instantiate. **(v1.0)** |
 
 ### T — Tampering
@@ -58,7 +58,7 @@ The **agent is untrusted**. The **kernel is trusted**. The **tool author and ope
 | Threat | Mitigation |
 |--------|-----------|
 | Audit log rewritten to hide a denied/approved action | Audit chain is content-addressed (sha256 of canonical-JSON body) and linked: `event.id = sha256(prev || body)`. `verify_audit_chain` walks the chain and detects body changes, hash changes, and missing seqs. **(v1.0)** |
-| Same-process attacker tampers with the audit DB | The kernel and the audit DB share a process boundary today. For untrusted tools, run them in the subprocess sandbox so they have no DB handle. **(v1.0)**. Separate audit-store writer process planned. **(v1.1)** |
+| Same-process attacker tampers with the audit DB | The kernel and the audit DB share a process boundary today. For untrusted tools, run them in the subprocess sandbox so they have no DB handle. **(v1.0)**. Separate audit-store writer process planned. **(v1.x)** |
 | Policy YAML modified at runtime to widen a rule | The `PolicyBundle` is hashed (content-addressed `id`) at task-creation time and pinned on the Task row. Policy changes do not affect in-flight tasks. **(v1.0)** |
 | Tool result rewritten between mediator and journal | The mediator and journal are in-process; no IPC boundary to attack. Trust model assumes the kernel is intact. |
 
@@ -67,13 +67,13 @@ The **agent is untrusted**. The **kernel is trusted**. The **tool author and ope
 | Threat | Mitigation |
 |--------|-----------|
 | Operator denies they approved an action | Every approval is recorded as an AuditEvent with `body.approver`, hash-chained. Cannot be silently removed. **(v1.0)** |
-| Agent claims it never proposed an action | `step.proposed` events are hash-chained, content-addressed, can be cryptographically signed when HSM signing lands. **(v1.1)** |
+| Agent claims it never proposed an action | `step.proposed` events are hash-chained, content-addressed, can be cryptographically signed when HSM signing lands. **(v1.x)** |
 
 ### I — Information disclosure
 
 | Threat | Mitigation |
 |--------|-----------|
-| Sensitive args leak into audit log (passwords, tokens, PII) | The HTTP shadow redacts `Authorization`, `X-API-Key`, `Cookie` already. Generalized redaction at the audit-write boundary planned. **(v1.1)** |
+| Sensitive args leak into audit log (passwords, tokens, PII) | The HTTP shadow redacts `Authorization`, `X-API-Key`, `Cookie` already. Generalized redaction at the audit-write boundary planned. **(v1.x)** |
 | Tool output leaks into adjacent runs via conversation reconstruction | Each run owns its own journal; checkpoints are per-run. The store does not cross-link runs unless the operator code does. **(v1.0)** |
 | Logs include full file contents from `read_file` results | `ActionResult.value` is JSON-serialized and stored. Operators must decide what to expose; we recommend wrapping read_file with a redactor when the file may contain secrets. Documented in the security guide. **(v1.0)** |
 
@@ -82,16 +82,16 @@ The **agent is untrusted**. The **kernel is trusted**. The **tool author and ope
 | Threat | Mitigation |
 |--------|-----------|
 | Adversarial agent floods the kernel with tool calls | `Budget(steps=...)` caps step count. Default is 50. Duration cap also enforced. **(v1.0)** |
-| Adversarial policy YAML triggers catastrophic regex backtracking | Regex compilation timeout planned; for now, lint command flags polynomial patterns. **(v1.1)** |
+| Adversarial policy YAML triggers catastrophic regex backtracking | Regex compilation timeout planned; for now, lint command flags polynomial patterns. **(v1.x)** |
 | Adversarial tool runs forever | The subprocess sandbox accepts `timeout_seconds`; default cap is 60s. **(v1.0)** |
 | Adversarial agent fills the audit log to exhaust disk | Per-run audit count is bounded by Budget. SQLite is single-file; ops should disk-monitor. Operational concern, documented but not enforced. **(v1.0)** |
-| Adversarial policy creates many small rules to slow PDP | PDP evaluation is linear in rule count; benchmarks show <1ms even with 200 rules. Caps planned only if a real abuse pattern surfaces. **(v1.1)** |
+| Adversarial policy creates many small rules to slow PDP | PDP evaluation is linear in rule count; benchmarks show <1ms even with 200 rules. Caps planned only if a real abuse pattern surfaces. **(v1.x)** |
 
 ### E — Elevation of privilege
 
 | Threat | Mitigation |
 |--------|-----------|
-| Agent escapes the workspace via path traversal in tool args | Operator's policy must include path-containment rules (see `examples/janitor-policy.yaml`). Helper predicates planned. **(v1.1)** |
+| Agent escapes the workspace via path traversal in tool args | Operator's policy must include path-containment rules (see `examples/policies/devops.yaml`). Helper predicates planned. **(v1.x)** |
 | Tool function called with rewritten args via `transform` verdict elevates beyond intended scope | `transform` is operator-defined; operator is trusted. Documented as "use sparingly." **(v1.0)** |
 | Untrusted tool in same process reads `~/.ssh` | Use `@tool(sandbox="subprocess")` to bind the tool to a stripped env and working directory. **(v1.0)** |
 | Approval bypass via direct DB write | Anyone with file-system access to `state.db` can edit it. This is the same trust level as the kernel; if you don't trust the host, use a sandboxed audit-store writer. Documented. **(v1.0)** |
@@ -128,5 +128,5 @@ See [`SECURITY.md`](../SECURITY.md) for vulnerability reporting.
 
 The next planned reviews are:
 
-- **External pair of eyes before v1.0 launch.** Targets: audit-chain integrity, policy bypass paths, sandbox escape paths.
-- **Annual review after v1.0.** As new adapters/backends land.
+- **External security review.** Targets: audit-chain integrity, policy bypass paths, sandbox escape paths. Pending a third-party reviewer post-launch.
+- **Annual review.** As new adapters / backends land.
