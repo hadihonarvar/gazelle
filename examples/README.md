@@ -1,18 +1,22 @@
 # examples/
 
-A learning path of 12 examples. Each is **self-contained** and starts with a plain-language SCENARIO explaining the problem it solves.
+A learning path of 23 examples. Each is **self-contained** and starts with a plain-language SCENARIO explaining the problem it solves.
 
-Read them in order — each one builds on the last.
+Read 01–12 in order for the core narrative; 13–23 cover every remaining feature for full coverage.
 
 ```
 SIMPLE          01 → 02 → 03         "see the system working"
 MORE COMPLEX    04 → 05 → 06         "approvals, real LLMs, streaming audit"
 ADVANCED        07 → 08 → 09         "production patterns: rules, transforms, web service"
 COMPLETE        10                   "the full thing — one realistic DevOps scenario"
-INTEGRATIONS    11 (Flask)  12 (Django)   "drop Lynx into your existing web framework"
+INTEGRATIONS    11 (Flask) 12 (Django)   "drop Lynx into your existing web framework"
+FULL COVERAGE   13 → 23              "every feature: python rules, transform ops,
+                                       custom sinks, cross-process approval,
+                                       shadow helpers, sandbox, hot-swap,
+                                       MCP, LangGraph, CrewAI, error model"
 ```
 
-## The 12 examples
+## The 23 examples
 
 | # | File | Verdict shown | Problem in one line |
 |---|------|--------------|---------------------|
@@ -28,6 +32,17 @@ INTEGRATIONS    11 (Flask)  12 (Django)   "drop Lynx into your existing web fram
 | 10 | [`10_devops_assistant.py`](10_devops_assistant.py) | **all five verdicts** (one policy, run in staging + prod) | "An AI DevOps assistant — every safety rule in one realistic scenario." |
 | 11 | [`11_flask_service.py`](11_flask_service.py) | sync HTTP service | "Same as 09 but for Flask — sync framework, `asyncio.run(...)` inside view." |
 | 12 | [`12_django_service.py`](12_django_service.py) | Django 4.1+ async views | "Same as 09 but as a single-file Django app." |
+| 13 | [`13_python_rules.py`](13_python_rules.py) | python_rules + diagnostics | "When YAML can't express it, drop into a Python rule — and surface rule errors via `matched_rules`." |
+| 14 | [`14_transform_ops.py`](14_transform_ops.py) | TRANSFORM `set` + `append` + `delete` | "All three transform operations in one policy, with proof of what the tool actually received." |
+| 15 | [`15_sqlite_sink.py`](15_sqlite_sink.py) | custom sink + `multi_sink` resilience | "Write a SQLite audit sink yourself in 10 lines; one bad sink in `multi_sink` doesn't kill the run." |
+| 16 | [`16_async_approval.py`](16_async_approval.py) | cross-process approval (mocked) | "The Slack/webhook pattern with a real `asyncio.Event` — including timeout enforcement." |
+| 17 | [`17_shadow_helpers.py`](17_shadow_helpers.py) | `lynx.shadows.*` helpers | "Don't reinvent shadows — wire the built-in filesystem/HTTP/shell/SQL previews directly." |
+| 18 | [`18_sandboxed_tool.py`](18_sandboxed_tool.py) | `run_in_subprocess` | "Bound a tool's CPU/memory/wall-clock budget. Not a security boundary — see SECURITY.md." |
+| 19 | [`19_hot_swap.py`](19_hot_swap.py) | hot-swap + budget + unknown tool | "Different policy on the next call. `Budget.steps` exhaustion. Unknown tool — survives." |
+| 20 | [`20_mcp_tools.py`](20_mcp_tools.py) | MCP integration | "Discover an MCP server's tools and pipe them through Lynx's policy, with proper child-process lifecycle." |
+| 21 | [`21_langgraph_demo.py`](21_langgraph_demo.py) | LangGraph adapter | "Wrap a compiled LangGraph state graph in `LangGraphAgent` so its tool nodes go through policy." |
+| 22 | [`22_crewai_demo.py`](22_crewai_demo.py) | CrewAI adapter | "Wrap a Crew in `CrewAIAgent`. Single-shot tradeoff documented inline." |
+| 23 | [`23_compile_errors.py`](23_compile_errors.py) | `PolicyCompileError` | "Every bad policy now fails loudly at compile time instead of silently never matching — drop into CI." |
 
 ## How to run any of them
 
@@ -35,7 +50,7 @@ INTEGRATIONS    11 (Flask)  12 (Django)   "drop Lynx into your existing web fram
 # Set up once
 pip install -e ".[dev]"
 
-# Examples 01-04, 06-08, 10 — no API key needed (scripted agents)
+# Examples 01-04, 06-08, 10, 13-19, 23 — no API key, no extras needed
 python examples/01_hello_allow.py
 python examples/02_block_dangerous.py
 python examples/03_preview_writes.py
@@ -44,6 +59,14 @@ python examples/06_streaming_to_jsonl.py
 python examples/07_refund_workflow.py
 python examples/08_sql_transform.py
 python examples/10_devops_assistant.py
+python examples/13_python_rules.py
+python examples/14_transform_ops.py
+python examples/15_sqlite_sink.py
+python examples/16_async_approval.py
+python examples/17_shadow_helpers.py
+python examples/18_sandboxed_tool.py
+python examples/19_hot_swap.py
+python examples/23_compile_errors.py
 
 # Example 05 — needs a real LLM API key
 export ANTHROPIC_API_KEY=sk-ant-...     # or OPENAI_API_KEY=sk-...
@@ -63,6 +86,18 @@ flask --app examples/11_flask_service.py run --debug
 # Example 12 — Django web service (single-file)
 pip install django
 python examples/12_django_service.py runserver
+
+# Example 20 — MCP adapter (needs a real MCP server to connect to)
+pip install lynx-agent[mcp]
+python examples/20_mcp_tools.py 'npx -y @modelcontextprotocol/server-filesystem .'
+
+# Example 21 — LangGraph adapter
+pip install lynx-agent[langgraph] langchain-core
+python examples/21_langgraph_demo.py
+
+# Example 22 — CrewAI adapter
+pip install lynx-agent[crewai]
+python examples/22_crewai_demo.py
 ```
 
 ## After running anything
@@ -77,13 +112,27 @@ There is no `lynx ps` / `lynx trace` / `lynx audit` — v2 holds no past runs.
 |--|---------|----------------|
 | ALLOW    | Policy lets the action through unchanged | 01, 02, 05, 07, 10 |
 | DENY     | Policy refuses; agent sees the denial as a tool result | 02, 05, 07, 08, 10 |
-| DRY_RUN  | Tool's `.shadow` runs instead of the real function; preview only | 03, 10 |
-| APPROVE_REQUIRED | Sync `on_approval` handler is called; the run blocks until it returns | 04, 07, 10 |
-| TRANSFORM | Policy rewrites the action's args (e.g. injects a `WHERE` clause) | 08, 10 (staging kubectl apply) |
+| DRY_RUN  | Tool's `.shadow` runs instead of the real function; preview only | 03, 10, 17 |
+| APPROVE_REQUIRED | Sync `on_approval` handler is called; the run blocks until it returns | 04, 07, 10, 16 |
+| TRANSFORM | Policy rewrites the action's args (e.g. injects a `WHERE` clause) | 08, 10 (staging kubectl apply), 14 (all three ops) |
+| Python rules + diagnostics | `python_rules=` argument; `<rule_error:...>` markers in `matched_rules` | 13 |
+| Custom sinks | Write your own sink to any storage backend | 15 (SQLite) — also see `docs/integration-cookbook.md` |
+| `multi_sink` resilience | Failures in one sink don't abort the run | 15 |
+| Cross-process approval | `callback_approval` blocking on an async signal (Slack pattern) | 16 |
+| Approval timeout enforcement | Mediator wraps handler in `asyncio.wait_for` | 16 |
 | Streaming events via sinks | Every step emits events; sinks consume them | All; explicit focus in 06 |
-| Multiple sinks (stdout + jsonl) | `multi_sink(...)` fans out | 06 |
+| Multiple sinks (stdout + jsonl) | `multi_sink(...)` fans out | 06, 15 |
+| Built-in shadow helpers | `lynx.shadows.{filesystem, http, shell, sql}_shadow` | 17 |
+| Subprocess sandbox | `lynx.sandbox.run_in_subprocess` with CPU/memory/wall-clock caps | 18 |
+| Hot-swap policy between runs | Same agent + tools, different `PolicyBundle` | 19 |
+| Budget exhaustion | `RunResult.error` with structured budget message, not a crash | 19 |
+| Unknown tool handling | `action.failed` + `[error]` injected to conversation; run continues | 19 |
+| MCP integration | `mcp_tools(command)` async context manager | 20 |
+| LangGraph integration | `LangGraphAgent(compiled_graph=...)` | 21 |
+| CrewAI integration | `CrewAIAgent(crew=...)` — single-shot tradeoff | 22 |
+| `PolicyCompileError` | Every malformed policy fails at compile time, not at runtime | 23 |
 | Web service integration | FastAPI / Flask / Django | 09 / 11 / 12 |
-| Real LLM | ClaudeAgent / OpenAIAgent | 05 |
+| Real LLM | ClaudeAgent / OpenAIAgent (proper `async with` lifetime) | 05 |
 
 ## Where to go next
 

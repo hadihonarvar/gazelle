@@ -44,6 +44,22 @@ All notable changes to Lynx will be documented here. Format follows [Keep a Chan
 - `docs/v2-rfc.md`: reconciled drift after the audit pass — hot-swap wording, removed contradictory mypy claim, fixed `run_agent` default signature, removed stale `RunStatus.RUNNING` example, removed the doubly-listed deferred sinks block, updated event-kinds list (`action.dry_run_completed` added; `action.denied` semantics expanded), updated `cli_prompt_approval` sketch to use `asyncio.to_thread`, documented approval timeout + handler-exception semantics, updated MCP adapter signature to the new async-context-manager shape, removed lingering "Runtime per request" reference in the examples table.
 - `docs/faq.md`, `examples/README.md`, `README.md`: cross-linked the new integration cookbook.
 
+### Examples (full-coverage pass)
+- **Fixed**: `examples/05_real_llm_blocked.py` now uses `async with ClaudeAgent(...)` / `async with OpenAIAgent(...)` instead of leaking the adapter's auto-created HTTP client.
+- **Added 11 new examples** so every feature has a runnable demo:
+  - `13_python_rules.py` — `python_rules=` argument; demonstrates rule-error markers (`<rule_error:rule_id:ExceptionName>`) surfaced in `Decision.matched_rules`; shows Python/YAML rules interleaved by priority.
+  - `14_transform_ops.py` — all three transform operations (`set` + `append` + `delete`) in one policy, with proof of what the tool actually received.
+  - `15_sqlite_sink.py` — a custom SQLite audit sink (your code, your connection, your retention); plus a `multi_sink` with one intentionally-broken sink to prove the run still completes.
+  - `16_async_approval.py` — the cross-process approval pattern (Slack-style) with a real `asyncio.Event` mock; demonstrates `timeout_seconds` enforcement.
+  - `17_shadow_helpers.py` — uses the pre-built `lynx.shadows.{write_file, shell, http, sql}_shadow` helpers instead of inline shadows.
+  - `18_sandboxed_tool.py` — `lynx.sandbox.run_in_subprocess` bounding CPU + memory + wall-clock; demonstrates the timeout path (child killed and reaped, no zombies).
+  - `19_hot_swap.py` — same agent + tools, two different `PolicyBundle`s, different verdicts; plus `Budget.steps` exhaustion and unknown-tool resilience in the same file.
+  - `20_mcp_tools.py` — `async with mcp_tools(command) as remote` with proper child-process lifecycle.
+  - `21_langgraph_demo.py` — a minimal compiled LangGraph state graph wrapped in `LangGraphAgent`.
+  - `22_crewai_demo.py` — a minimal `Crew` wrapped in `CrewAIAgent`; documents the single-shot tradeoff inline.
+  - `23_compile_errors.py` — eight different malformed policies, each caught at compile time by `PolicyCompileError` (typo'd operators, unknown predicates, missing transform blocks, ReDoS regex shapes, etc.).
+- `examples/README.md` reorganized: now teaches 23 examples in four tiers (SIMPLE / MORE COMPLEX / ADVANCED / COMPLETE / INTEGRATIONS / FULL COVERAGE); the "What each example demonstrates" coverage table now maps every public feature to its example.
+
 ## [2.0.0] — 2026-06-10
 
 **Breaking rewrite.** Lynx becomes a stateless, type-safe policy kernel. Pure functions over immutable values. No SQLite. No globals. No leaks. v1.0.x is preserved on PyPI for users who need durability + audit storage.
