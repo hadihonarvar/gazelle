@@ -71,7 +71,7 @@ No. v2 holds no file handles, no DB connections, no sockets, no subprocess refs.
 
 ### Is mypy strict required for users?
 
-No. Strict typing is enforced **inside** the Lynx source for our quality. Users get the type annotations; you can use mypy strict or not.
+No. You get the type annotations and can run mypy at whatever level you prefer. Inside Lynx, `mypy --strict` is a target we're moving toward but not yet a hard CI gate — it's an advisory check today.
 
 ### Can I use it inside FastAPI / Django / Flask?
 
@@ -79,7 +79,16 @@ Yes — see `examples/09_fastapi_service.py`, `11_flask_service.py`, `12_django_
 
 ### What about MCP?
 
-`lynx.adapters.mcp.register_mcp_server(command) -> list[str]` returns the names of tools registered. In v2 this stays compatible; MCP servers are wrapped as `@tool`-decorated functions and bundled into a `ToolSet`.
+`lynx.adapters.mcp.mcp_tools(command) -> ToolSet` connects to an MCP server, discovers its tools, and returns them as an immutable `ToolSet`. Union it with your local tools and pass to `run_agent`:
+
+```python
+from lynx.adapters.mcp import mcp_tools
+remote = await mcp_tools("python -m my_mcp_server")
+tools = remote.union(ToolSet.from_functions(local_tool))
+await run_agent(agent, task=..., tools=tools, policy=...)
+```
+
+No global registration. The MCP defaults are conservative (`reversible=False`, scope `mcp:tool`) so policies must explicitly allow them.
 
 ### How do I file a security issue?
 

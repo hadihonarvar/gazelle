@@ -1,11 +1,17 @@
 # DevOps-assistant policy — the "kitchen sink" example.
 #
-# Demonstrates every Lynx verdict at once:
+# Demonstrates every Lynx verdict at once. Which verdicts fire depends on
+# ``environment`` (``context.environment``):
+#
 #   ALLOW            — read-only inspection (ls, get, describe, etc.)
-#   DRY_RUN          — any mutation gets a preview first
-#   APPROVE_REQUIRED — any change in PRODUCTION needs a human
-#   DENY             — hard-blocks for catastrophic commands
-#   TRANSFORM        — adds a safety prefix to kubectl commands (force --dry-run=server)
+#   DENY             — hard-blocks for catastrophic commands (any env)
+#   APPROVE_REQUIRED — mutations in PRODUCTION require a human
+#   TRANSFORM        — kubectl apply in STAGING is rewritten to add
+#                      `--dry-run=server` so apply is a server-side preview
+#   DRY_RUN          — other mutations route to the tool's .shadow
+#
+# Run example 10 once with environment="prod" and once with "staging" to
+# observe all five.
 
 version: 1
 defaults:
@@ -14,6 +20,7 @@ defaults:
 
 predicates:
   in_prod: { context.environment: prod }
+  in_staging: { context.environment: staging }
   is_kubectl: { tool: kubectl }
   is_aws:     { tool: aws_cli }
   is_terraform: { tool: terraform }
@@ -71,7 +78,22 @@ rules:
     decision: approve_required
     approvers: ["sre-oncall@acme.com"]
 
-  # 3. Non-prod mutations — dry-run first.
+  # 3. Staging kubectl apply — TRANSFORM to a server-side preview rather
+  #    than dry-running locally. Demonstrates the transform verdict.
+  - id: staging-kubectl-apply-force-server-dry-run
+    priority: 70
+    match:
+      all_of:
+        - is_kubectl
+        - in_staging
+        - args.command.matches: '^apply\b'
+    decision: transform
+    transform:
+      jsonpath: "$.args.command"
+      append: " --dry-run=server"
+    reason: "Staging applies run as server-side previews."
+
+  # 4. Other non-prod mutations — dry-run first.
   - id: non-prod-mutations-dry-run
     priority: 60
     match:
@@ -80,7 +102,7 @@ rules:
         - all_of: [is_terraform, args.command.matches: '^(apply|destroy|plan)\b']
     decision: dry_run
 
-  # 4. Read-only inspection — always allow.
+  # 5. Read-only inspection — always allow.
   - id: kubectl-reads
     priority: 50
     match:

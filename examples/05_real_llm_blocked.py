@@ -54,10 +54,13 @@ rules:
 
 
 async def main() -> None:
+    tools = ToolSet.from_functions(shell)
+
     if os.getenv("ANTHROPIC_API_KEY"):
         from lynx.adapters.anthropic_sdk import ClaudeAgent
 
         agent = ClaudeAgent(
+            tools=tools,
             model="claude-opus-4-7",
             system="You are a careful sysadmin. Inspect freely, modify nothing.",
         )
@@ -66,6 +69,7 @@ async def main() -> None:
         from lynx.adapters.openai_sdk import OpenAIAgent
 
         agent = OpenAIAgent(
+            tools=tools,
             model="gpt-5",
             system="You are a careful sysadmin. Inspect freely, modify nothing.",
         )
@@ -78,7 +82,7 @@ async def main() -> None:
     result = await run_agent(
         agent,
         task="Inspect /tmp without modifying anything; summarize when done.",
-        tools=ToolSet.from_functions(shell),
+        tools=tools,
         policy=compile_policy(POLICY),
         sinks=(stdout_sink(),),
         on_approval=auto_deny("not configured"),

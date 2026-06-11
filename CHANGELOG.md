@@ -5,7 +5,33 @@ All notable changes to Lynx will be documented here. Format follows [Keep a Chan
 ## [Unreleased]
 
 ### Added
-- (nothing yet)
+- `PolicyCompileError` raised for malformed YAML, unknown operators (with typo suggestions), unknown predicate names, invalid `transform` blocks, malformed `between` / `in` operands, and ReDoS-guard rejections.
+- `Message.tool_call_args` field — the scheduler now records the assistant's tool-call shape so Anthropic / OpenAI adapters can re-emit a well-formed `assistant→tool` alternation on the next step.
+- `action.dry_run_completed` audit event kind, distinct from `action.completed`. Tool-side denials emit `action.denied` (was `action.failed`) so consumers can bucket denials separately.
+- `mcp_tools` now returns an `async with` context manager that keeps the MCP child process alive for the lifetime of the run.
+- Sink failures (in `run_agent` and in `multi_sink`) are reported to stderr instead of being silently swallowed.
+
+### Fixed
+- TRANSFORM verdict no longer silently degrades to ALLOW when `transform_args` is missing.
+- Python rules and YAML rules now share a single priority-sorted evaluation order; a higher-priority YAML rule no longer loses to a lower-priority Python rule.
+- `bundle_id` now hashes rule bodies (and defaults / python-rule priorities), not just rule IDs. Two policies with the same IDs but different verdicts now produce different IDs.
+- Equal-priority rules sort by integer file order, not by lexicographic source location (`rule[10]` no longer sorts before `rule[2]`).
+- `approve_required` `timeout_seconds` is enforced by the mediator: a hanging handler now times out into a deny instead of hanging the run forever. Exceptions in the handler convert to a deny.
+- `cli_prompt_approval` no longer blocks the event loop while waiting for stdin.
+- Sandbox subprocess kill path now reaps the child; PYTHONPATH no longer leaks empty `sys.path` entries.
+- `Verdict` parsing in YAML accepts mixed case.
+- `in` / `between` / `not_between` operators validate their right-hand side at compile time.
+- Operator typos (`args.cmd.matchess`) raise `PolicyCompileError` instead of silently becoming a never-matching field path.
+- `canonical_json` falls back to `repr()` for non-serializable values instead of crashing sinks.
+- `ToolSet.from_functions` / `with_tool` / `union` raise on duplicate tool names instead of silently overwriting.
+- `Budget.duration_seconds` uses `time.monotonic()` instead of `time.time()`.
+- `_annotation_to_schema` understands `list[int]`, `Literal[...]`, `Optional[X]`, `Union[...]`, `tuple[...]`, and `bytes` instead of flattening every non-primitive to `{"type": "string"}`.
+- Service examples (FastAPI / Flask / Django) inspect events for `action.denied` and return HTTP 403 instead of reporting a misleading 200.
+- Example 10 + `examples/policies/devops.yaml` now exercise all five verdicts (run once in staging + once in prod). The docstring matches reality.
+- Django example puts the project root on `sys.path` before `django.setup()` so the documented invocation actually works.
+
+### Removed
+- `Budget.usd` and `Budget.tokens` fields — neither was enforced; token/spend accounting belongs in a sink.
 
 ## [2.0.0] — 2026-06-10
 
@@ -59,10 +85,10 @@ All notable changes to Lynx will be documented here. Format follows [Keep a Chan
 
 ### Type system
 
-- `mypy --strict` is now a hard CI gate (was soft in v1).
 - Every public type is `frozen=True, slots=True`.
 - Public API uses `Mapping` / `tuple` / `Sequence`, never `dict` / `list`.
 - Zero `Any` in the public API surface; internal `Any` only at adapter boundaries.
+- `mypy src` runs in CI as an advisory check; tightening to `--strict` and making it a hard gate is tracked for a follow-up release.
 
 ### Dependencies
 
@@ -73,9 +99,7 @@ All notable changes to Lynx will be documented here. Format follows [Keep a Chan
 
 ### Testing
 
-- Test suite slimmed from 57 v1 tests to 57 focused v2 tests (different tests).
-- Removed: store, audit-chain, resume, broker, idempotency tests.
-- Added: ToolSet immutability tests, sink contract tests, approval handler tests, `run_agent` integration tests.
+- Test suite rewritten around the new surface. Removed: store, audit-chain, resume, broker, idempotency tests. Added: ToolSet immutability tests, sink contract tests, approval handler tests, `run_agent` integration tests (including TRANSFORM end-to-end, approval timeout, sink failures, and policy hot-swap).
 
 ### Documentation
 

@@ -26,6 +26,7 @@ from typing import Any
 
 try:
     from fastapi import FastAPI
+    from fastapi.responses import JSONResponse
     from pydantic import BaseModel
 except ImportError as exc:
     raise SystemExit(
@@ -98,12 +99,17 @@ class RunRequest(BaseModel):
 
 
 @app.post("/agent/run")
-async def run_endpoint(req: RunRequest) -> dict[str, Any]:
-    # Per-request: collect events; user's choice of where to put them
+async def run_endpoint(req: RunRequest) -> Any:
+    # Per-request: collect events. We inspect them so the HTTP response can
+    # reflect a policy denial — without this, the agent's FinalAnswer would
+    # be returned with a 200 even when the side-effecting tool was blocked.
+    denials: list[dict[str, Any]] = []
     events_seen: list[dict[str, Any]] = []
 
     async def collect(ev):
         events_seen.append({"kind": ev.kind, "seq": ev.seq})
+        if ev.kind == "action.denied":
+            denials.append({"seq": ev.seq, "reason": ev.body.get("reason", "")})
 
     result = await run_agent(
         ScriptedRefund(req.customer_id, req.amount_usd, req.reason),
@@ -113,13 +119,19 @@ async def run_endpoint(req: RunRequest) -> dict[str, Any]:
         sinks=(callback_sink(collect),),
         on_approval=auto_approve(approver="api"),
     )
-    return {
+    body = {
         "correlation_id": result.correlation_id,
         "final_answer": result.final_answer,
         "error": result.error,
         "steps_taken": result.steps_taken,
         "events_count": len(events_seen),
+        "denials": denials,
     }
+    if denials:
+        # Policy blocked at least one action. Return 403 + the denial reasons
+        # so callers see the failure rather than a misleading 200.
+        return JSONResponse(status_code=403, content=body)
+    return body
 
 
 @app.get("/")

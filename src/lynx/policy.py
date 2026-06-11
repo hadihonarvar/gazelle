@@ -2,6 +2,7 @@
 
 from lynx.core.policy import (
     PolicyBundle,
+    PolicyCompileError,
     PolicyDefaults,
     PythonRule,
     allow,
@@ -16,6 +17,7 @@ from lynx.core.policy import (
 
 __all__ = [
     "PolicyBundle",
+    "PolicyCompileError",
     "PolicyDefaults",
     "PythonRule",
     "allow",

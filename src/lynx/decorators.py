@@ -22,7 +22,7 @@ def tool(
     cost: Literal["low", "medium", "high"] = "low",
     reversible: bool = True,
     scope: tuple[str, ...] = (),
-    blast_radius_hint: int | Callable[..., int] | None = None,
+    blast_radius_hint: int | None = None,
     name: str | None = None,
     description: str | None = None,
 ) -> Callable[[Callable[..., Awaitable[Any]]], Callable[..., Awaitable[Any]]]:
@@ -47,13 +47,14 @@ def tool(
                 f"@tool requires async function; {fn.__name__} is sync. "
                 "Wrap sync code with asyncio.to_thread() inside an async shim."
             )
+        if hasattr(fn, "__lynx_meta__"):
+            raise TypeError(
+                f"{fn.__name__} is already decorated with @tool; double-decoration "
+                "is unsupported because it would silently overwrite metadata."
+            )
 
         tool_name = name or fn.__name__
         desc = description or (inspect.getdoc(fn) or "").strip()
-
-        # Resolve blast_radius_hint statically if it's a callable that we
-        # can't pre-evaluate; leave as None and let the kernel compute later.
-        hint_static: int | None = blast_radius_hint if isinstance(blast_radius_hint, int) else None
 
         meta = ToolDef(
             name=tool_name,
@@ -64,7 +65,7 @@ def tool(
                 cost=cost,
                 reversible=reversible,
                 scope=tuple(scope),
-                blast_radius_hint=hint_static,
+                blast_radius_hint=blast_radius_hint,
                 has_shadow=False,
             ),
         )

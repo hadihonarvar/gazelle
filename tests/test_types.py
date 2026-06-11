@@ -107,3 +107,45 @@ def test_toolset_mapping_is_read_only() -> None:
     ts = ToolSet.from_functions(list_dir)
     with pytest.raises(TypeError):
         ts.tools["evil"] = None  # type: ignore[index]
+
+
+def test_toolset_from_functions_rejects_duplicates() -> None:
+    @tool(reversible=True, scope=(), name="dup")
+    async def a() -> None:
+        return None
+
+    @tool(reversible=True, scope=(), name="dup")
+    async def b() -> None:
+        return None
+
+    with pytest.raises(ValueError, match="Duplicate"):
+        ToolSet.from_functions(a, b)
+
+
+def test_toolset_with_tool_rejects_duplicate_name() -> None:
+    ts = ToolSet.from_functions(list_dir)
+    with pytest.raises(ValueError):
+        ts.with_tool(list_dir.__lynx_meta__)
+
+
+def test_toolset_union_rejects_overlap() -> None:
+    a = ToolSet.from_functions(list_dir)
+    b = ToolSet.from_functions(list_dir)
+    with pytest.raises(ValueError, match="collision"):
+        a.union(b)
+
+
+def test_double_tool_decoration_raises() -> None:
+    async def f() -> None:
+        return None
+
+    tool(reversible=True, scope=())(f)
+    with pytest.raises(TypeError, match="already decorated"):
+        tool(reversible=False, scope=())(f)
+
+
+def test_budget_no_legacy_fields() -> None:
+    """v2 removed Budget.usd and Budget.tokens (neither was enforced)."""
+    b = Budget()
+    assert not hasattr(b, "usd")
+    assert not hasattr(b, "tokens")

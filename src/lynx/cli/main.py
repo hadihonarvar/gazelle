@@ -55,14 +55,23 @@ def cli() -> None:
 def init(directory: str, force: bool) -> None:
     """Write a starter policy.yaml in the given directory.
 
-    No state directory. No config file. Lynx v2 holds nothing on disk.
+    Creates the directory if it doesn't already exist.
     """
     d = Path(directory).resolve()
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        click.echo(f"could not create {d}: {exc}", err=True)
+        sys.exit(1)
     policy_path = d / "policy.yaml"
     if policy_path.exists() and not force:
         click.echo(f"= {policy_path} already exists (use --force to overwrite)", err=True)
         sys.exit(1)
-    policy_path.write_text(_DEFAULT_POLICY)
+    try:
+        policy_path.write_text(_DEFAULT_POLICY)
+    except OSError as exc:
+        click.echo(f"could not write {policy_path}: {exc}", err=True)
+        sys.exit(1)
     click.echo(f"wrote {policy_path}")
 
 
@@ -76,17 +85,30 @@ def run(script: str) -> None:
     """
     import runpy
 
-    sys.path.insert(0, str(Path(script).resolve().parent))
-    namespace = runpy.run_path(script)
+    script_dir = str(Path(script).resolve().parent)
+    inserted_path = False
+    if script_dir not in sys.path:
+        sys.path.insert(0, script_dir)
+        inserted_path = True
+    try:
+        namespace = runpy.run_path(script)
 
-    if "main" not in namespace or not asyncio.iscoroutinefunction(namespace["main"]):
-        click.echo(
-            "script must define an async `main()` coroutine that calls run_agent(...)",
-            err=True,
-        )
-        sys.exit(1)
+        if "main" not in namespace or not asyncio.iscoroutinefunction(namespace["main"]):
+            click.echo(
+                "script must define an async `main()` coroutine that calls run_agent(...)",
+                err=True,
+            )
+            sys.exit(1)
 
-    asyncio.run(namespace["main"]())
+        asyncio.run(namespace["main"]())
+    finally:
+        # Don't leak script_dir into sys.path after the command finishes —
+        # matters when `lynx run` is called from inside another Python process.
+        if inserted_path:
+            try:
+                sys.path.remove(script_dir)
+            except ValueError:
+                pass
 
 
 @cli.group()
@@ -112,7 +134,11 @@ def policy_lint(path: str) -> None:
 @click.argument("path", default="policy.yaml")
 def policy_bundle_id(path: str) -> None:
     """Print the content-addressed bundle ID for a policy file."""
-    bundle = load_policy_file(path)
+    try:
+        bundle = load_policy_file(path)
+    except Exception as exc:
+        click.echo(f"{type(exc).__name__}: {exc}", err=True)
+        sys.exit(1)
     click.echo(bundle.id)
 
 

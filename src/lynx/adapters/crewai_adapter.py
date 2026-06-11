@@ -1,37 +1,41 @@
-"""CrewAI adapter.
+"""CrewAI adapter — v2.
 
-Wraps a CrewAI Crew as a Lynx Agent. Each Crew tool invocation is
-intercepted and routed through Lynx's mediator.
+Wraps a CrewAI ``Crew`` as a Lynx ``Agent``. CrewAI orchestrates internally
+via ``kickoff()``; this adapter runs it once and surfaces the result.
 
-Requires `pip install lynx-agent[crewai]`.
+For most production deployments you'll prefer wrapping individual CrewAI
+tools as Lynx ``@tool``s and bundling them into a ``ToolSet`` directly —
+that gives the kernel per-call mediation. Use this adapter only when you
+need the full Crew orchestration.
+
+Requires ``pip install lynx-agent[crewai]``.
 
 Usage::
 
-    from crewai import Agent as CrewAgent, Crew, Task as CrewTask
+    from crewai import Crew
+    from lynx import ToolSet, run_agent, compile_policy
     from lynx.adapters.crewai_adapter import CrewAIAgent
-    from lynx import runtime
 
     crew = Crew(agents=[...], tasks=[...])
     agent = CrewAIAgent(crew=crew)
-    await runtime.run(agent, task="...", policy="policy.yaml")
+    await run_agent(agent, "...", tools=ToolSet(), policy=compile_policy(...))
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
-from lynx.sdk import FinalAnswer, Message, ToolCall
+from lynx.core.types import FinalAnswer, Message, ToolCall
+
+__all__ = ["CrewAIAgent"]
 
 
 class CrewAIAgent:
     """Adapter for CrewAI Crews.
 
-    Notes:
-      - CrewAI does not natively expose a step()-shaped interface; this
-        adapter wraps `crew.kickoff()` and surfaces tool invocations via a
-        monkey-patched tool dispatcher.
-      - For most production deployments you'll prefer registering individual
-        CrewAI tools as Lynx @tools rather than wrapping the whole crew.
+    Single-shot: ``step()`` returns the crew's final answer the first time
+    it's called and stays in the terminal state thereafter.
     """
 
     def __init__(self, crew: Any) -> None:
@@ -41,31 +45,14 @@ class CrewAIAgent:
             raise ImportError(
                 "CrewAIAgent requires the 'crewai' package. Install with: pip install crewai"
             ) from exc
-        self.crew = crew
-        self._pending_tool: ToolCall | None = None
+        self._crew = crew
         self._done = False
-        self._result: str = ""
+        self._result = ""
 
-    async def step(self, conversation: list[Message]):
+    async def step(self, conversation: tuple[Message, ...]) -> ToolCall | FinalAnswer:
         if self._done:
             return FinalAnswer(text=self._result)
-        if self._pending_tool:
-            tc, self._pending_tool = self._pending_tool, None
-            return tc
-
-        # In a real impl we'd run kickoff() with an instrumented tool layer
-        # that yields ToolCalls into a queue. The simple form here just runs
-        # the crew once and returns the final answer.
-        result = await _run_blocking(self.crew.kickoff)
+        result = await asyncio.to_thread(self._crew.kickoff)
         self._done = True
         self._result = str(result)
         return FinalAnswer(text=self._result)
-
-
-async def _run_blocking(fn, *args, **kwargs) -> Any:
-    import asyncio
-
-    return await asyncio.to_thread(fn, *args, **kwargs)
-
-
-__all__ = ["CrewAIAgent"]

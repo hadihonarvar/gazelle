@@ -16,7 +16,7 @@
 What v2 is:
 - A function: `(agent, tools, policy) → RunResult` plus events streamed to sinks
 - An immutable data model (every type frozen, no mutation)
-- A small library — ~2,500 lines of source, fully typed (`mypy --strict` hard gate)
+- A small library — ~2,500 lines of source, fully typed (`mypy src` runs in CI as an advisory check today; tightening to `--strict` and making it a hard gate is tracked for a follow-up release).
 
 What v2 is NOT:
 - Not a database. Not a runtime daemon. Not a control plane.
@@ -78,9 +78,14 @@ def stdout_sink() -> Sink: ...
 def jsonl_sink(handle: IO[str]) -> Sink: ...
 def noop_sink() -> Sink: ...
 def multi_sink(*sinks: Sink) -> Sink: ...
-def otel_sink(tracer: Tracer) -> Sink: ...          # optional [sinks-otel]
-def prometheus_sink(port: int) -> Sink: ...         # optional [sinks-prom]
-def http_sink(url: str) -> Sink: ...                # optional [sinks-http]
+def callback_sink(fn: Callable[[AuditEvent], Awaitable[None]]) -> Sink: ...
+
+# Deferred to v2.1 — each depends on an optional package and can be added
+# without breaking the v2.0 API:
+#   def otel_sink(tracer: Tracer) -> Sink: ...     # [sinks-otel]
+#   def prometheus_sink(port: int) -> Sink: ...    # [sinks-prom]
+#   def http_sink(url: str) -> Sink: ...           # [sinks-http]
+#   def kafka_sink(...) -> Sink: ...               # [sinks-kafka]
 
 # === Approvals ===
 class ApprovalRequest: ...                    # frozen
@@ -544,11 +549,11 @@ lynx policy bundle-id   # print content-addressed ID
 
 ### Test count target
 
-v1 had 57 tests. v2 target: ~30 focused tests, faster suite. Drop everything related to: stores, audit chain, resume flow, broker behavior, the CLI commands that don't exist anymore.
+v1 had 57 tests. v2 trims the surface; the suite focuses on the kernel + adapters + CLI. Actual count drifts as features land — don't quote a number. Drop everything related to: stores, audit chain, resume flow, broker behavior, the CLI commands that don't exist anymore.
 
 ### CI gates
 
-- `mypy --strict src tests`  ← HARD GATE (was soft)
+- `mypy src` (advisory in 2.0; `--strict src tests` as a hard gate is tracked for a follow-up release)
 - `ruff check src tests examples`
 - `ruff format --check`
 - `pytest` — must be < 2s suite

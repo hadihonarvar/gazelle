@@ -5,13 +5,18 @@ EXAMPLE 11 — "Lynx behind Flask" (INTEGRATION)
 
 SCENARIO:
     Same as example 09 but for Flask. Flask is sync so we wrap with
-    asyncio.run inside the view.
+    asyncio.run inside the view. Note that asyncio.run() spins up and tears
+    down a fresh event loop per request — fine for a demo, but for
+    production prefer an async framework (FastAPI, Quart) or a worker
+    that keeps a loop hot.
 
 REQUIRES:
     pip install flask
 
 RUN WITH:
-    flask --app examples.11_flask_service run --debug
+    # File-path form (the digit-prefixed filename is not importable as a
+    # Python module, so the dotted --app form does NOT work):
+    flask --app examples/11_flask_service.py run --debug
 """
 
 from __future__ import annotations
@@ -86,11 +91,18 @@ app = create_app()
 @app.post("/agent/run")
 def run_endpoint() -> Any:
     body = request.get_json() or {}
-    events_count = 0
+    for required in ("customer_id", "amount_usd", "reason"):
+        if required not in body:
+            return jsonify({"error": f"missing field: {required}"}), 400
 
-    async def count(ev):
+    events_count = 0
+    denials: list[dict[str, Any]] = []
+
+    async def collect(ev):
         nonlocal events_count
         events_count += 1
+        if ev.kind == "action.denied":
+            denials.append({"seq": ev.seq, "reason": ev.body.get("reason", "")})
 
     async def go():
         return await run_agent(
@@ -98,20 +110,21 @@ def run_endpoint() -> Any:
             task=f"Refund {body['customer_id']}",
             tools=app.config["TOOLS"],
             policy=app.config["POLICY"],
-            sinks=(callback_sink(count),),
+            sinks=(callback_sink(collect),),
             on_approval=auto_approve(approver="api"),
         )
 
     result = asyncio.run(go())
-    return jsonify(
-        {
-            "correlation_id": result.correlation_id,
-            "final_answer": result.final_answer,
-            "error": result.error,
-            "steps_taken": result.steps_taken,
-            "events_count": events_count,
-        }
-    )
+    payload = {
+        "correlation_id": result.correlation_id,
+        "final_answer": result.final_answer,
+        "error": result.error,
+        "steps_taken": result.steps_taken,
+        "events_count": events_count,
+        "denials": denials,
+    }
+    status = 403 if denials else 200
+    return jsonify(payload), status
 
 
 @app.get("/")

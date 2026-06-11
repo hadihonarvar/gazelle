@@ -146,11 +146,20 @@ Principal(kind="user" | "service" | "agent", id="...", name="...")
 
 ## Budget
 
-Frozen. Hard caps the kernel enforces.
+Frozen. Hard caps the kernel enforces between steps. Both fields are optional except `steps`, which defaults to 50:
 
 ```python
-Budget(steps=50, duration_seconds=600, usd=..., tokens=...)
+@dataclass(frozen=True, slots=True)
+class Budget:
+    duration_seconds: int | None = None
+    steps: int | None = 50
 ```
+
+The scheduler uses a monotonic clock for `duration_seconds`, so wall-clock NTP jumps cannot exhaust (or extend) the budget. Checks happen between steps; a single hung tool call is not interrupted by `duration_seconds` — use a tool-level timeout for that.
+
+`run_agent`'s default for its `budget=` parameter is `Budget(steps=50, duration_seconds=600)` — a 50-step / 10-minute cap. Override per call to widen or tighten.
+
+> v2.0 removed the `usd` and `tokens` fields that v1 carried: neither was enforced by the kernel. Token/spend accounting belongs in a sink (or an adapter wrapping the LLM call), not in the policy boundary.
 
 ## ExecutionContext
 
