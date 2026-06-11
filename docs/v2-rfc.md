@@ -11,7 +11,7 @@
 
 > **Lynx 2.0 is a stateless, type-safe policy kernel for AI agent tool calls.**
 > Pure functions over immutable values. No database. No globals. No leaks.
-> Five verdicts. Streaming events to user-owned sinks. Hot-reloadable policy.
+> Five verdicts. Streaming events to user-owned sinks. Hot-swappable per call.
 
 What v2 is:
 - A function: `(agent, tools, policy) → RunResult` plus events streamed to sinks
@@ -114,8 +114,8 @@ async def run_agent(
     *,
     tools: ToolSet,
     policy: PolicyBundle,
-    sinks: tuple[Sink, ...] = (),
-    on_approval: ApprovalHandler = auto_deny("no handler configured"),
+    sinks: Sequence[Sink] = (),
+    on_approval: ApprovalHandler | None = None,   # defaults to auto_deny(...) inside
     budget: Budget = Budget(steps=50, duration_seconds=600),
     principal: Principal = Principal(kind="user", id="anonymous"),
     environment: str = "dev",
@@ -143,7 +143,7 @@ That's it. Everything else is internal.
 
 ### Hard requirements
 
-- `mypy --strict` clean — hard CI gate (was soft in v1)
+- `mypy src` runs in CI as an advisory check; tightening to `--strict src tests` as a hard gate is a follow-up release goal
 - Zero `Any` in the public API
 - Every public function has explicit return type
 - Every dataclass is `frozen=True, slots=True`
@@ -183,11 +183,11 @@ class Foo: ...
 ### Mutations return new values
 
 ```python
-# Allowed
-new_run = run.with_status(RunStatus.RUNNING)
+# Allowed — return a new value
+new_tools = tools.with_tool(extra_tool_def)
 
 # NOT allowed
-run.status = RunStatus.RUNNING  # TypeError at runtime; mypy --strict catches
+tools.tools["x"] = extra_tool_def  # TypeError at runtime (MappingProxyType is read-only)
 ```
 
 ### Builders
@@ -214,8 +214,8 @@ async def run_agent(...) -> RunResult:
 | Tool registry | Module-level dict that grows per import; never cleared | `ToolSet` is an immutable value created at call site; freed when call returns |
 | Approval broker | Module-level dict that accumulates pending/resolved | Synchronous `on_approval` callback; no persistence |
 | Python rules | Module-level list that grows per `@rule` import | Explicit `python_rules=(...)` argument to `compile_policy` |
-| OTel tracer | Module-level reference held forever | User holds the `Tracer`; passes to `otel_sink(tracer)`; no global ref |
-| Prometheus counters | Module-level `Counter`/`Histogram` objects | Same — user owns the registry; passes to `prometheus_sink(...)` |
+| OTel tracer | Module-level reference held forever | User holds the `Tracer`; passes it into their own sink closure; no global ref. (See [integration cookbook](integration-cookbook.md) for the wiring pattern.) |
+| Prometheus counters | Module-level `Counter`/`Histogram` objects | Same — user owns the registry; references it from inside their sink closure. |
 | Conversation buffer | Lived in `Scheduler._loop` for the run duration | Same lifetime, but freed at `run_agent` return |
 | Step checkpoint blob | Persisted to disk forever | Doesn't exist |
 | Audit chain | Persisted to disk forever | Streamed; sinks fire-and-forget; user owns retention |
@@ -263,8 +263,12 @@ async def _do_step(
     ...
 
 async def _emit(sinks: tuple[Sink, ...], event: AuditEvent) -> None:
-    """Fan out to all sinks. No buffering."""
-    await asyncio.gather(*(s(event) for s in sinks))
+    """Fan out to all sinks. No buffering. Sink failures are logged to
+    stderr; they do not abort the run."""
+    results = await asyncio.gather(*(s(event) for s in sinks), return_exceptions=True)
+    for sink_obj, outcome in zip(sinks, results, strict=True):
+        if isinstance(outcome, BaseException):
+            print(f"[lynx] sink failed: {outcome!r}", file=sys.stderr)
 ```
 
 The mediator becomes a function:
@@ -314,24 +318,25 @@ def noop_sink() -> Sink:
     return sink
 
 def multi_sink(*sinks: Sink) -> Sink:
-    """Fan out to several sinks concurrently."""
+    """Fan out to several sinks concurrently. Failures in one don't kill the
+    others; they're logged to stderr."""
     async def sink(event: AuditEvent) -> None:
-        await asyncio.gather(*(s(event) for s in sinks))
+        results = await asyncio.gather(
+            *(s(event) for s in sinks), return_exceptions=True
+        )
+        for sub, outcome in zip(sinks, results, strict=True):
+            if isinstance(outcome, BaseException):
+                print(f"[lynx] sink failed: {outcome!r}", file=sys.stderr)
     return sink
 ```
 
-### Optional sinks (extras-gated)
+### User-written sinks
 
-```python
-# pip install lynx-agent[sinks-otel]
-def otel_sink(tracer: "opentelemetry.trace.Tracer") -> Sink: ...
-
-# pip install lynx-agent[sinks-prom]
-def prometheus_sink(port: int = 9100, *, registry: "CollectorRegistry | None" = None) -> Sink: ...
-
-# pip install lynx-agent[sinks-http]
-def http_sink(url: str, *, headers: dict[str, str] | None = None) -> Sink: ...
-```
+Storage adapters (Postgres, Redis, Splunk, OTel, Datadog, S3, ...) are not
+shipped in the kernel. Users write their own with the `Sink` protocol; the
+[integration cookbook](integration-cookbook.md) has 5–15 line recipes that
+show the wiring pattern for each. Lynx imports nothing from those packages
+and stays at three runtime dependencies (`click`, `pyyaml`, `rich`).
 
 ### Events
 
@@ -351,10 +356,11 @@ Event kinds (closed set):
 - `step.proposed`
 - `policy.evaluated`
 - `action.started`
-- `action.completed`
-- `action.failed`
-- `action.denied`
-- `action.dry_run`
+- `action.dry_run` — shadow about to run
+- `action.completed` — real tool returned ok
+- `action.dry_run_completed` — shadow returned ok (distinct so consumers don't conflate previews with real side effects)
+- `action.failed` — real tool raised / shadow raised / unknown tool
+- `action.denied` — policy `deny` verdict, OR an `approve_required` whose handler refused / timed out / raised
 - `approval.requested`
 - `approval.granted`
 - `approval.denied`
@@ -401,7 +407,8 @@ def auto_deny(reason: str) -> ApprovalHandler:
 
 def cli_prompt_approval(approver: str = "local") -> ApprovalHandler:
     async def h(req: ApprovalRequest) -> ApprovalDecision:
-        ans = input(f"Approve {req.request.tool}? [y/N] ")
+        # asyncio.to_thread so the blocking read doesn't freeze the event loop
+        ans = await asyncio.to_thread(input, f"Approve {req.request.tool}? [y/N] ")
         return ApprovalDecision(granted=ans.lower() == "y", approver=approver)
     return h
 
@@ -411,7 +418,14 @@ def callback_approval(fn: Callable[[ApprovalRequest], Awaitable[ApprovalDecision
 
 ### Behavior
 
-When policy returns `approve_required`, `mediate` calls `on_approval(req)`. The result determines whether the action runs as `allow` or returns as `denied`. The `run_agent` loop blocks on the handler — no queue, no broker, no resume.
+When policy returns `approve_required`, `mediate` calls `on_approval(req)` wrapped in `asyncio.wait_for(..., decision.timeout_seconds)`. The result determines what happens next:
+
+- Handler returns `granted=True` → action runs as if `allow`
+- Handler returns `granted=False` → returned as a denial
+- Handler exceeds the timeout → auto-deny with `"approval handler timed out after Ns"`
+- Handler raises → auto-deny with the exception class in the message
+
+The `run_agent` loop blocks on the handler — no queue, no broker, no resume. Cross-process humans-in-the-loop (Slack, email, webhook) live inside the handler, which can take hours to return.
 
 If a user wants cross-process approval (Slack, web UI), their handler does the cross-process wait:
 
@@ -516,7 +530,7 @@ Content-addressed hash of the compiled bundle. Pinned per run. Surfaced in every
 | `OpenAIAgent` | Keep — already stateless. Update to take ToolSet explicitly. |
 | `LangGraphAgent` | Keep — minor type cleanup. |
 | `CrewAIAgent` | Keep — minor type cleanup. |
-| `register_mcp_server` | Becomes `mcp_tools(command) -> ToolSet` (returns a value, doesn't register globally). |
+| `register_mcp_server` | Becomes `mcp_tools(command)` — an async context manager that starts the MCP child process, yields a `ToolSet`, and tears the process down on exit. No global registration. |
 
 ---
 
@@ -575,7 +589,7 @@ v1 had 57 tests. v2 trims the surface; the suite focuses on the kernel + adapter
 | 06 | `06_streaming_to_jsonl.py` | Replaces compliance-audit; shows jsonl_sink |
 | 07 | `07_refund_workflow.py` | Three customers, three verdicts, three runs — each separate |
 | 08 | `08_sql_transform.py` | TRANSFORM verdict |
-| 09 | `09_fastapi_service.py` | One Runtime per FastAPI request — no shared state |
+| 09 | `09_fastapi_service.py` | `run_agent` inside a FastAPI endpoint; one ScriptedRefund per request; denials surface as HTTP 403 |
 | 10 | `10_devops_assistant.py` | All five verdicts; full scenario |
 | 11 | `11_flask_service.py` | Same as 09 but Flask (asyncio.run inside view) |
 | 12 | `12_django_service.py` | Same as 09 but Django async view |

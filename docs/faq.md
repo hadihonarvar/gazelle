@@ -11,6 +11,8 @@ Wherever you point the sinks. v2 holds nothing. Common choices:
 - `jsonl_sink(open("audit.jsonl", "a"))` — to disk; you own retention
 - Custom `callback_sink(fn)` — ship to OTel, Datadog, Splunk, your bus
 
+See the [integration cookbook](integration-cookbook.md) for ready-to-paste recipes covering SQLite, PostgreSQL, OpenTelemetry, Splunk HEC, generic HTTP POST, Slack approvals, and wrapping `run_agent` in Temporal for durability.
+
 ### Can I get the v1 hash-chained audit chain?
 
 Not in v2. If you need it: `pip install "lynx-agent<2.0"`. We keep v1.0.x security-patched.

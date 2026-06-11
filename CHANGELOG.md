@@ -39,6 +39,11 @@ All notable changes to Lynx will be documented here. Format follows [Keep a Chan
 - `sandbox.py`: the sandboxed child is now killed and reaped in a `finally` block, so cancellation or any post-exec exception cannot leave a zombie process or open stdout/stderr pipes.
 - `adapters/anthropic_sdk.py` + `adapters/openai_sdk.py`: when the agent auto-created the SDK client, the HTTP/2 connection pool had no shutdown path. `aclose()` + `__aenter__` / `__aexit__` close it cleanly. User-supplied clients are untouched.
 
+### Documentation
+- New `docs/integration-cookbook.md` — wiring patterns for sinks (SQLite, PostgreSQL, OpenTelemetry, Splunk HEC, generic HTTP), approval handlers (Slack, email-link, queue), and durability (Temporal). All recipes are ~5–20 lines of user code; Lynx imports nothing from those packages.
+- `docs/v2-rfc.md`: reconciled drift after the audit pass — hot-swap wording, removed contradictory mypy claim, fixed `run_agent` default signature, removed stale `RunStatus.RUNNING` example, removed the doubly-listed deferred sinks block, updated event-kinds list (`action.dry_run_completed` added; `action.denied` semantics expanded), updated `cli_prompt_approval` sketch to use `asyncio.to_thread`, documented approval timeout + handler-exception semantics, updated MCP adapter signature to the new async-context-manager shape, removed lingering "Runtime per request" reference in the examples table.
+- `docs/faq.md`, `examples/README.md`, `README.md`: cross-linked the new integration cookbook.
+
 ## [2.0.0] — 2026-06-10
 
 **Breaking rewrite.** Lynx becomes a stateless, type-safe policy kernel. Pure functions over immutable values. No SQLite. No globals. No leaks. v1.0.x is preserved on PyPI for users who need durability + audit storage.
