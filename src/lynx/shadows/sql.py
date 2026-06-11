@@ -46,11 +46,21 @@ async def sql_shadow(query: str, conn: Any = None) -> dict[str, Any]:
         out["warning"] = f"{operation} without WHERE clause — would affect ALL rows in {tables}"
 
     if conn is not None:
+        cur = None
         try:
             cur = conn.cursor()
             cur.execute(f"EXPLAIN {query}")
             out["explain"] = cur.fetchall()
         except Exception as exc:
             out["explain_error"] = str(exc)
+        finally:
+            # Cursors hold server-side resources (Postgres named-portal,
+            # MySQL statement handle). Close even on success to avoid leaks
+            # under repeated dry-runs.
+            if cur is not None:
+                try:
+                    cur.close()
+                except Exception:
+                    pass
 
     return out

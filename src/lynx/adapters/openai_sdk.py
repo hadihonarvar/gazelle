@@ -34,6 +34,12 @@ class OpenAIAgent:
 
     Stateless across calls: each ``step()`` rebuilds the request from the
     immutable conversation it receives.
+
+    **Client lifetime.** ``AsyncOpenAI`` keeps an internal HTTP/2 connection
+    pool. If you let ``OpenAIAgent`` auto-construct one (``client=None``), the
+    agent owns it: use the agent as an async context manager or call
+    ``aclose()`` when done. For high-throughput services, share one client
+    across all agents (see ``ClaudeAgent`` docstring for the pattern).
     """
 
     def __init__(
@@ -52,11 +58,32 @@ class OpenAIAgent:
                     "OpenAIAgent requires the 'openai' package. Install with: pip install openai"
                 ) from exc
             client = AsyncOpenAI()
+            self._owns_client = True
+        else:
+            self._owns_client = False
         self._client = client
         self._tools = tools
         self._tool_defs = toolset_to_openai_tools(tools)
         self._model = model
         self._system = system
+
+    async def aclose(self) -> None:
+        """Release the underlying OpenAI client's HTTP connection pool.
+
+        Only closes the client when OpenAIAgent instantiated it (``client=None``
+        at construction). If the caller passed a client in, the caller owns it
+        and we leave it alone.
+        """
+        if self._owns_client:
+            close = getattr(self._client, "aclose", None)
+            if close is not None:
+                await close()
+
+    async def __aenter__(self) -> OpenAIAgent:
+        return self
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+        await self.aclose()
 
     async def step(self, conversation: tuple[Message, ...]) -> ToolCall | FinalAnswer:
         kwargs: dict[str, Any] = {

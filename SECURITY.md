@@ -31,21 +31,35 @@ Include:
 
 In scope:
 
-- Memory-safety / sandbox-escape bugs in the kernel
-- Audit-log tampering paths
 - Policy-bypass: any input that causes the PDP to return ALLOW when policy intended otherwise
-- Approval-token forgery
-- Credential leaks in logs, traces, or audit events
+- Verdict-routing bugs: the mediator running real side effects under `dry_run` / `approve_required` / `deny`
 - Regex-DoS / parser-DoS in the policy compiler
+- Approval-handler misrouting: the kernel calling the wrong handler, or skipping it
+- Resource limits in `lynx.sandbox.run_in_subprocess` failing to bound CPU / memory / timeout as documented
+- Credential leaks in `AuditEvent.body` content emitted by the kernel (note: what your sinks do with events is your concern)
 - Dependency chain attacks (typosquatting, supply-chain)
 
 Out of scope:
 
+- **`lynx.sandbox` as a security boundary.** It runs a tool in a fresh interpreter with best-effort `RLIMIT_CPU` / `RLIMIT_AS` / cwd + env stripping; it is NOT filesystem or network isolation, NOT a syscall filter, and the tool body is shipped via `pickle` and runs as the same OS user. Use a container / microVM / nsjail for real isolation. We will fix documented-behavior bugs (timeouts not firing, processes not reaped); we will not treat "sandboxed tool reached the filesystem" as a vuln.
+- What your sinks do with events (file permissions on `audit.jsonl`, retention, downstream tampering — those are your concerns; Lynx holds nothing)
 - Vulnerabilities in third-party tools you wrap with `@tool` (those are your dependency's problem)
 - Misconfigured policies that allow dangerous actions (this is the operator's responsibility)
 - Issues in the optional adapters (`lynx/adapters/*`) that depend on bugs in the wrapped SDK
-- Findings against EOL versions
+- Findings against EOL versions (v1.0.x receives security backports for the latest minor; v2 is the active branch)
 
 ## Threat model
 
-The full threat model lives in [`docs/threat-model.md`](docs/threat-model.md). It enumerates the trust boundaries Lynx defends and the ones it does not.
+The kernel's trust boundaries:
+
+1. **Agent → kernel.** The agent is untrusted. The kernel validates every action through the PDP before any side effect.
+2. **Kernel → tool.** The tool author is trusted (you wrote / imported it). The kernel only invokes tools that your `ToolSet` includes.
+3. **Kernel → sink.** Sinks receive events and own retention. The kernel itself holds no state beyond a single `run_agent` call.
+4. **Kernel → approval handler.** The handler is called synchronously and is fully trusted. Cross-process / cross-host approval is the handler's design problem.
+
+What v2 does NOT defend against:
+
+- A compromised tool function (you decide what tools are in the `ToolSet`).
+- A handler that lies about its decision (it's your code).
+- A sink that drops or alters events (it's your code; the kernel emits faithfully).
+- Prompt-injection attacks at the LLM layer (out of scope; use NeMo Guardrails / Lakera in addition).

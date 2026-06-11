@@ -297,6 +297,69 @@ def test_openai_empty_choices_returns_final_answer():
     assert isinstance(out, FinalAnswer)
 
 
+# ---------------------------------------------------------------------------
+# Client-lifetime ownership (memory-leak prevention)
+# ---------------------------------------------------------------------------
+
+
+class _ClosableClient:
+    """Stub client with an aclose() the test can observe."""
+
+    def __init__(self) -> None:
+        self.closed = False
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+        self.messages = SimpleNamespace(create=self._create)
+
+    async def _create(self, **kwargs: Any) -> Any:
+        return SimpleNamespace(content=[], choices=[])
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_claude_agent_aclose_user_supplied_client_not_closed() -> None:
+    client = _ClosableClient()
+    async with ClaudeAgent(tools=TOOLS, client=client):
+        pass
+    # We did not auto-create the client, so we do NOT close it.
+    assert client.closed is False
+
+
+@pytest.mark.asyncio
+async def test_openai_agent_aclose_user_supplied_client_not_closed() -> None:
+    client = _ClosableClient()
+    async with OpenAIAgent(tools=TOOLS, client=client):
+        pass
+    assert client.closed is False
+
+
+@pytest.mark.asyncio
+async def test_claude_agent_aclose_closes_owned_client() -> None:
+    """When the adapter auto-creates the SDK client, exiting the context
+    manager must call aclose() — otherwise the HTTP pool leaks."""
+    sentinel = _ClosableClient()
+    # Construct without passing client to set _owns_client=True, then swap
+    # in a stub we can observe — we can't import the real anthropic package.
+    agent = ClaudeAgent.__new__(ClaudeAgent)
+    agent._client = sentinel
+    agent._owns_client = True
+    async with agent:
+        pass
+    assert sentinel.closed is True
+
+
+@pytest.mark.asyncio
+async def test_openai_agent_aclose_closes_owned_client() -> None:
+    sentinel = _ClosableClient()
+    agent = OpenAIAgent.__new__(OpenAIAgent)
+    agent._client = sentinel
+    agent._owns_client = True
+    async with agent:
+        pass
+    assert sentinel.closed is True
+
+
 @pytest.mark.asyncio
 async def test_openai_agent_returns_final_answer_on_text_only():
     client = _FakeOpenAIClient(_openai_text_response("done"))

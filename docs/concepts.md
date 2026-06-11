@@ -47,11 +47,11 @@ Frozen dataclass returned by the PDP. Includes the verdict, reason, matched rule
 
 ## Policy
 
-A YAML document plus optional Python rules, compiled into a `PolicyBundle`. The bundle has a content-addressed `id` (sha256-prefix of canonical JSON of its rules). Pass to `run_agent` for the kernel to consult.
+A YAML document plus optional Python rules, compiled into a `PolicyBundle`. The bundle has a content-addressed `id` (first 16 hex chars of sha256 over the canonical compiled form: version + defaults + every rule body + every Python rule's (name, priority)). Pass to `run_agent` for the kernel to consult.
 
 ## PolicyBundle
 
-Frozen, immutable. The `id` is a deterministic hash; equal bundles have equal IDs. Surfaced in every event for attestation.
+Frozen, immutable. The `id` is a deterministic hash over the full compiled content — two policies that differ only in a rule's body produce different IDs, even when the rule names match. Surfaced in every event for attestation.
 
 ## PDP
 
@@ -127,10 +127,11 @@ No hash chain. No content addressing. Your sink decides retention.
 | `policy.evaluated` | PDP returned a Decision |
 | `action.started` | Real tool about to run (allow / transform / approval-granted) |
 | `action.dry_run` | Shadow about to run |
-| `action.completed` | Tool returned ok |
-| `action.failed` | Tool raised or denial |
-| `action.denied` | Policy denial path |
-| `approval.requested` | `approve_required` verdict |
+| `action.completed` | Real tool returned ok |
+| `action.dry_run_completed` | Shadow returned ok — distinct so consumers don't conflate previews with side effects |
+| `action.failed` | Real tool raised, OR shadow raised, OR unknown tool |
+| `action.denied` | Policy denied — `deny` verdict, OR an `approve_required` verdict whose handler refused (or timed out, or raised) |
+| `approval.requested` | `approve_required` verdict, before calling the handler |
 | `approval.granted` | Handler returned `granted=True` |
 | `approval.denied` | Handler returned `granted=False` |
 | `run.succeeded` | Agent returned FinalAnswer |

@@ -124,27 +124,32 @@ async def run_in_subprocess(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+        # Guarantee the child is killed + reaped on ANY exit path
+        # (timeout, cancellation, parser exception). Otherwise the
+        # subprocess plus its stdout/stderr pipes leak file descriptors.
         try:
-            _, stderr_b = await asyncio.wait_for(
-                proc.communicate(), timeout=timeout_seconds
-            )
-        except TimeoutError as exc:
-            # Kill AND reap — otherwise the subprocess + its pipes leak.
-            proc.kill()
             try:
-                await proc.wait()
-            except Exception:
-                pass
-            raise SandboxError(f"sandbox timeout after {timeout_seconds}s") from exc
+                _, stderr_b = await asyncio.wait_for(
+                    proc.communicate(), timeout=timeout_seconds
+                )
+            except TimeoutError as exc:
+                raise SandboxError(f"sandbox timeout after {timeout_seconds}s") from exc
 
-        if proc.returncode != 0:
-            stderr = stderr_b.decode(errors="replace")[-1000:]
-            raise SandboxError(f"sandbox exited {proc.returncode}: {stderr}")
+            if proc.returncode != 0:
+                stderr = stderr_b.decode(errors="replace")[-1000:]
+                raise SandboxError(f"sandbox exited {proc.returncode}: {stderr}")
 
-        try:
-            with result_path.open() as f:
-                data = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError) as exc:
-            raise SandboxError(f"sandbox produced no result: {exc}") from exc
+            try:
+                with result_path.open() as f:
+                    data = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError) as exc:
+                raise SandboxError(f"sandbox produced no result: {exc}") from exc
 
-        return data["value"]
+            return data["value"]
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+                try:
+                    await proc.wait()
+                except BaseException:
+                    pass

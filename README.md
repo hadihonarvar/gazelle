@@ -7,7 +7,7 @@ Pure functions over immutable values. No database. No globals. No leaks. Five ve
 ```python
 import asyncio
 from lynx import (
-    ToolSet, tool, compile_policy, run_agent,
+    ToolSet, tool, load_policy_file, run_agent,
     stdout_sink, auto_deny,
 )
 
@@ -25,7 +25,7 @@ result = await run_agent(
     my_agent,
     task="clean up old logs",
     tools=ToolSet.from_functions(shell),
-    policy=compile_policy(open("policy.yaml").read()),
+    policy=load_policy_file("policy.yaml"),
     sinks=(stdout_sink(),),
     on_approval=auto_deny("no approvals configured"),
     environment="prod",          # policy can match on context.environment
@@ -210,8 +210,9 @@ rules:
     transform: { ... }                   # only used by transform
 ```
 
-Rules are sorted by `(-priority, source_location)`. The first matching rule
-wins. Python rules (see below) run **before** YAML rules.
+Rules are sorted by `(-priority, file order)`. The first matching rule wins.
+Python rules (see below) are interleaved with YAML rules by priority — a
+higher-priority YAML rule beats a lower-priority Python rule, and vice versa.
 
 ### The five verdicts
 
@@ -299,8 +300,11 @@ bundle = compile_policy(
 ```
 
 Each Python rule is `(ActionRequest, ExecutionContext) -> Decision | None`.
-Return `None` to defer; the first non-`None` result wins. Python rules are
-evaluated **before** YAML rules, in priority order (default 0).
+Return `None` to defer; the first non-`None` result wins. Python and YAML
+rules are interleaved in a single priority-sorted evaluation order (default
+priority `0`). If a rule raises during evaluation, it is recorded as a
+diagnostic marker in `Decision.matched_rules` (e.g. `<rule_error:my_rule:TypeError>`)
+and evaluation continues — buggy rules never silently fail-open.
 
 ### Decision constructors
 

@@ -10,6 +10,7 @@ All notable changes to Lynx will be documented here. Format follows [Keep a Chan
 - `action.dry_run_completed` audit event kind, distinct from `action.completed`. Tool-side denials emit `action.denied` (was `action.failed`) so consumers can bucket denials separately.
 - `mcp_tools` now returns an `async with` context manager that keeps the MCP child process alive for the lifetime of the run.
 - Sink failures (in `run_agent` and in `multi_sink`) are reported to stderr instead of being silently swallowed.
+- `ClaudeAgent` and `OpenAIAgent` are async context managers and expose `aclose()`. Auto-created HTTP clients are released on `__aexit__`; user-supplied clients are left alone.
 
 ### Fixed
 - TRANSFORM verdict no longer silently degrades to ALLOW when `transform_args` is missing.
@@ -32,6 +33,11 @@ All notable changes to Lynx will be documented here. Format follows [Keep a Chan
 
 ### Removed
 - `Budget.usd` and `Budget.tokens` fields — neither was enforced; token/spend accounting belongs in a sink.
+
+### Leak fixes
+- `shadows/sql.py`: cursor opened against a user-supplied `conn` was never closed; now closed in a `finally` block.
+- `sandbox.py`: the sandboxed child is now killed and reaped in a `finally` block, so cancellation or any post-exec exception cannot leave a zombie process or open stdout/stderr pipes.
+- `adapters/anthropic_sdk.py` + `adapters/openai_sdk.py`: when the agent auto-created the SDK client, the HTTP/2 connection pool had no shutdown path. `aclose()` + `__aenter__` / `__aexit__` close it cleanly. User-supplied clients are untouched.
 
 ## [2.0.0] — 2026-06-10
 

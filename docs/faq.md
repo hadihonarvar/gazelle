@@ -67,7 +67,12 @@ async def handler():
 
 ### Do I need to clean up anything?
 
-No. v2 holds no file handles, no DB connections, no sockets, no subprocess refs. Your sinks own their files; close them when you're done. The subprocess sandbox auto-cleans its temp dir.
+The kernel itself holds nothing across calls. But:
+
+- **Your sinks own their files.** Close them when you're done.
+- **The MCP adapter** runs a child process for the lifetime of the `async with` block — exit the block (or the program crashes will GC the pipe).
+- **The LLM adapters (`ClaudeAgent` / `OpenAIAgent`)** auto-create an `AsyncAnthropic` / `AsyncOpenAI` client when you don't pass one in. That client has an HTTP/2 connection pool. Use the agent as an async context manager (or call `agent.aclose()`) to release it. For services, share one client across all requests instead.
+- **The subprocess sandbox** auto-cleans its temp dir, and kills + reaps the child on any exit path.
 
 ### Is mypy strict required for users?
 
@@ -79,13 +84,15 @@ Yes — see `examples/09_fastapi_service.py`, `11_flask_service.py`, `12_django_
 
 ### What about MCP?
 
-`lynx.adapters.mcp.mcp_tools(command) -> ToolSet` connects to an MCP server, discovers its tools, and returns them as an immutable `ToolSet`. Union it with your local tools and pass to `run_agent`:
+`lynx.adapters.mcp.mcp_tools(command)` is an async context manager that starts the MCP server as a child process, discovers its tools, and yields an immutable `ToolSet`. The server stays alive for the duration of the `async with` block:
 
 ```python
 from lynx.adapters.mcp import mcp_tools
-remote = await mcp_tools("python -m my_mcp_server")
-tools = remote.union(ToolSet.from_functions(local_tool))
-await run_agent(agent, task=..., tools=tools, policy=...)
+
+async with mcp_tools("python -m my_mcp_server") as remote:
+    tools = remote.union(ToolSet.from_functions(local_tool))
+    await run_agent(agent, task=..., tools=tools, policy=...)
+# server + stdio pipes torn down here
 ```
 
 No global registration. The MCP defaults are conservative (`reversible=False`, scope `mcp:tool`) so policies must explicitly allow them.

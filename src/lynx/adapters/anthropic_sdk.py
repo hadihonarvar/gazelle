@@ -40,6 +40,25 @@ class ClaudeAgent:
     Stateless across calls: each ``step()`` rebuilds the request from the
     immutable conversation it receives. The adapter holds only its client
     and configuration.
+
+    **Client lifetime.** ``AsyncAnthropic`` keeps an internal HTTP/2 connection
+    pool. If you let ``ClaudeAgent`` auto-construct one (``client=None``),
+    the agent owns it: use the agent as an async context manager or call
+    ``aclose()`` when done, otherwise the pool leaks until garbage
+    collection. If you pass your own client in, you own it::
+
+        async with ClaudeAgent(tools=tools) as agent:
+            await run_agent(agent, ..., tools=tools, policy=policy)
+
+    For high-throughput services, share one client across all agents::
+
+        client = AsyncAnthropic()
+        try:
+            for req in incoming:
+                agent = ClaudeAgent(tools=tools, client=client)
+                await run_agent(agent, ...)
+        finally:
+            await client.aclose()
     """
 
     def __init__(
@@ -60,12 +79,33 @@ class ClaudeAgent:
                     "Install with: pip install anthropic"
                 ) from exc
             client = AsyncAnthropic()
+            self._owns_client = True
+        else:
+            self._owns_client = False
         self._client = client
         self._tools = tools
         self._tool_defs = toolset_to_anthropic_tools(tools)
         self._model = model
         self._system = system
         self._max_tokens = max_tokens
+
+    async def aclose(self) -> None:
+        """Release the underlying Anthropic client's HTTP connection pool.
+
+        Only closes the client when ClaudeAgent instantiated it (``client=None``
+        at construction). If the caller passed a client in, the caller owns it
+        and we leave it alone.
+        """
+        if self._owns_client:
+            close = getattr(self._client, "aclose", None)
+            if close is not None:
+                await close()
+
+    async def __aenter__(self) -> ClaudeAgent:
+        return self
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+        await self.aclose()
 
     async def step(self, conversation: tuple[Message, ...]) -> ToolCall | FinalAnswer:
         kwargs: dict[str, Any] = {

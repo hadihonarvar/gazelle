@@ -110,6 +110,11 @@ rules:
 
 ## Auto-inject tenant_id into SQL
 
+The YAML `transform` block can only insert literal strings — there is no
+`${...}` interpolation. For a fixed tenant per environment, just hard-code
+the literal in YAML. For a dynamic tenant from `context.principal.id`,
+write a Python rule (see the next recipe).
+
 ```yaml
 predicates:
   destructive_sql:
@@ -130,7 +135,25 @@ rules:
     decision: transform
     transform:
       jsonpath: "$.args.sql"
-      append: " AND tenant_id = '${context.principal.id}'"
+      append: " AND tenant_id = 'TENANT-ALICE'"   # hard-coded literal
+```
+
+### Dynamic tenant from the principal (Python rule)
+
+```python
+from lynx import transform, ActionRequest, ExecutionContext
+
+def inject_tenant(req: ActionRequest, ctx: ExecutionContext):
+    if req.tool != "sql_exec":
+        return None
+    sql = req.args.get("sql", "")
+    if not sql or "tenant_id" in sql:
+        return None
+    new_args = dict(req.args)
+    new_args["sql"] = f"{sql} AND tenant_id = '{ctx.principal.id}'"
+    return transform(transform_args=new_args, reason="scoped to principal")
+
+bundle = compile_policy(yaml_source, python_rules=(inject_tenant,))
 ```
 
 ## Path containment (Python escape hatch)
