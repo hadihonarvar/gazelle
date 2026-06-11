@@ -156,9 +156,7 @@ class ToolSet:
                     f"{fn.__name__} is not decorated with @tool — cannot include in ToolSet"
                 )
             if meta.name in out:
-                raise ValueError(
-                    f"Duplicate tool name {meta.name!r} in ToolSet.from_functions"
-                )
+                raise ValueError(f"Duplicate tool name {meta.name!r} in ToolSet.from_functions")
             out[meta.name] = meta
         return cls(tools=MappingProxyType(out))
 
@@ -178,9 +176,7 @@ class ToolSet:
     def union(self, other: ToolSet) -> ToolSet:
         overlap = set(self.tools) & set(other.tools)
         if overlap:
-            raise ValueError(
-                f"ToolSet.union collision on names: {sorted(overlap)}"
-            )
+            raise ValueError(f"ToolSet.union collision on names: {sorted(overlap)}")
         return ToolSet(tools=MappingProxyType({**self.tools, **other.tools}))
 
     def names(self) -> tuple[str, ...]:

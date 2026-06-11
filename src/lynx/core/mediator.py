@@ -123,9 +123,7 @@ async def _execute_real(
     override_args: Mapping[str, str] | Mapping[str, object] | None = None,
 ) -> ActionResult:
     tool = tools.get(request.tool)
-    args: Mapping[str, object] = (
-        override_args if override_args is not None else dict(request.args)
-    )
+    args: Mapping[str, object] = override_args if override_args is not None else dict(request.args)
     started = time.perf_counter()
     try:
         value = await tool.fn(**args)

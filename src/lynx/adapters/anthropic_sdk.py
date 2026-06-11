@@ -163,9 +163,9 @@ def _to_anthropic_messages(conversation: tuple[Message, ...]) -> list[dict[str, 
         # Anthropic requires strict alternation; collapse runs of the same role.
         if out and out[-1]["role"] == role:
             prev = out[-1]["content"]
-            new_blocks = content if isinstance(content, list) else [
-                {"type": "text", "text": content}
-            ]
+            new_blocks = (
+                content if isinstance(content, list) else [{"type": "text", "text": content}]
+            )
             if isinstance(prev, str):
                 prev_blocks: list[Any] = [{"type": "text", "text": prev}] if prev else []
             else:

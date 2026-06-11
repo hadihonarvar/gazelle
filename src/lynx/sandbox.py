@@ -129,9 +129,7 @@ async def run_in_subprocess(
         # subprocess plus its stdout/stderr pipes leak file descriptors.
         try:
             try:
-                _, stderr_b = await asyncio.wait_for(
-                    proc.communicate(), timeout=timeout_seconds
-                )
+                _, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=timeout_seconds)
             except TimeoutError as exc:
                 raise SandboxError(f"sandbox timeout after {timeout_seconds}s") from exc
 

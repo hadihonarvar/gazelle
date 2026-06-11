@@ -349,9 +349,9 @@ def test_bundle_id_changes_when_rule_body_changes() -> None:
     b = compile_policy(
         "version: 1\ndefaults: { on_no_match: deny }\n"
         "rules:\n"
-        "  - id: r\n"               # same id
+        "  - id: r\n"  # same id
         "    match: { tool: shell }\n"
-        "    decision: deny\n"      # different verdict
+        "    decision: deny\n"  # different verdict
         "    reason: no\n"
     )
     assert a.id != b.id  # the v1 hash collided here
@@ -504,12 +504,8 @@ rules:
 
 
 def test_two_bundles_with_same_request_decide_independently() -> None:
-    allow_bundle = compile_policy(
-        "version: 1\ndefaults: { on_no_match: allow }\nrules: []\n"
-    )
-    deny_bundle = compile_policy(
-        "version: 1\ndefaults: { on_no_match: deny }\nrules: []\n"
-    )
+    allow_bundle = compile_policy("version: 1\ndefaults: { on_no_match: allow }\nrules: []\n")
+    deny_bundle = compile_policy("version: 1\ndefaults: { on_no_match: deny }\nrules: []\n")
     req = _req()
     ctx = _ctx()
     assert evaluate(allow_bundle, req, ctx).verdict == Verdict.ALLOW

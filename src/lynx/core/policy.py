@@ -199,9 +199,7 @@ _REGEX_DANGEROUS_PATTERNS = (
 
 def _compile_safe_regex(pattern: str) -> re.Pattern[str]:
     if len(pattern) > _MAX_REGEX_LENGTH:
-        raise PolicyCompileError(
-            f"Regex pattern too long ({len(pattern)} > {_MAX_REGEX_LENGTH})"
-        )
+        raise PolicyCompileError(f"Regex pattern too long ({len(pattern)} > {_MAX_REGEX_LENGTH})")
     for danger in _REGEX_DANGEROUS_PATTERNS:
         if danger.search(pattern):
             raise PolicyCompileError(
@@ -242,9 +240,7 @@ def _compile_predicate(
         return _compile_predicate(predicates[spec], predicates)
 
     if not isinstance(spec, Mapping):
-        raise PolicyCompileError(
-            f"Predicate must be Mapping or predicate name, got: {spec!r}"
-        )
+        raise PolicyCompileError(f"Predicate must be Mapping or predicate name, got: {spec!r}")
 
     leaves: list[Callable[[ActionRequest, ExecutionContext], bool]] = []
 
@@ -303,7 +299,11 @@ def _operator_check(
                 f"`in` operator requires a list/tuple/set on the right-hand side, "
                 f"got {type(value).__name__}: {value!r}"
             )
-        rhs = frozenset(value) if all(isinstance(x, (str, int, float, bool)) for x in value) else tuple(value)
+        rhs = (
+            frozenset(value)
+            if all(isinstance(x, (str, int, float, bool)) for x in value)
+            else tuple(value)
+        )
         return lambda r, c: getter(r, c) in rhs
     if op == "contains":
 
@@ -350,9 +350,7 @@ def _operator_check(
             )
         lo, hi = value
         if lo > hi:
-            raise PolicyCompileError(
-                f"`between` operator: lo > hi ({lo} > {hi}); range is empty"
-            )
+            raise PolicyCompileError(f"`between` operator: lo > hi ({lo} > {hi}); range is empty")
 
         def check_between(r: ActionRequest, c: ExecutionContext) -> bool:
             v = getter(r, c)
@@ -511,15 +509,15 @@ def compile_policy(
     else:
         loaded = source
     if not isinstance(loaded, Mapping):
-        raise PolicyCompileError(
-            f"Policy root must be a mapping, got {type(loaded).__name__}"
-        )
+        raise PolicyCompileError(f"Policy root must be a mapping, got {type(loaded).__name__}")
     data: Mapping[str, Any] = loaded
 
     try:
         version = int(data.get("version", 1))
     except (TypeError, ValueError) as exc:
-        raise PolicyCompileError(f"version must be an integer, got {data.get('version')!r}") from exc
+        raise PolicyCompileError(
+            f"version must be an integer, got {data.get('version')!r}"
+        ) from exc
 
     defaults_raw = data.get("defaults", {}) or {}
     defaults = PolicyDefaults(
@@ -540,9 +538,7 @@ def compile_policy(
     raw_rules = data.get("rules", []) or []
     for idx, rspec in enumerate(raw_rules):
         if not isinstance(rspec, Mapping):
-            raise PolicyCompileError(
-                f"rules[{idx}] must be a mapping, got {type(rspec).__name__}"
-            )
+            raise PolicyCompileError(f"rules[{idx}] must be a mapping, got {type(rspec).__name__}")
         rid = rspec.get("id") or f"rule_{idx}"
         try:
             priority = int(rspec.get("priority", 0))
@@ -580,7 +576,9 @@ def compile_policy(
                 "priority": priority,
                 "match": _canonical_predicate(match, predicates),
                 "decision": {
-                    "verdict": _verdict_canonical(rspec.get("decision", rspec.get("verdict", "deny"))),
+                    "verdict": _verdict_canonical(
+                        rspec.get("decision", rspec.get("verdict", "deny"))
+                    ),
                     "approvers": list(rspec.get("approvers", []) or []),
                     "timeout_seconds": rspec.get("timeout_seconds"),
                     "transform": dict(rspec.get("transform") or {}),
@@ -677,9 +675,7 @@ def _make_python_eval(
             return None
         # Tag the python rule name in matched_rules.
         new_matched: tuple[str, ...] = (
-            result.matched_rules
-            if name in result.matched_rules
-            else (*result.matched_rules, name)
+            result.matched_rules if name in result.matched_rules else (*result.matched_rules, name)
         )
         return Decision(
             verdict=result.verdict,
@@ -701,9 +697,7 @@ def _verdict_canonical(value: Any) -> str:
     return str(value)
 
 
-def _canonical_predicate(
-    spec: Any, predicates: Mapping[str, Mapping[str, Any]]
-) -> Any:
+def _canonical_predicate(spec: Any, predicates: Mapping[str, Mapping[str, Any]]) -> Any:
     """Inline named predicates so bundle_id hashes the same thing for two
     policies that compile to equivalent matchers."""
     if isinstance(spec, str):

@@ -574,12 +574,8 @@ rules:
 
 
 async def test_two_consecutive_runs_with_different_policies_decide_independently() -> None:
-    allow_policy = compile_policy(
-        "version: 1\ndefaults: { on_no_match: allow }\nrules: []\n"
-    )
-    deny_policy = compile_policy(
-        "version: 1\ndefaults: { on_no_match: deny }\nrules: []\n"
-    )
+    allow_policy = compile_policy("version: 1\ndefaults: { on_no_match: allow }\nrules: []\n")
+    deny_policy = compile_policy("version: 1\ndefaults: { on_no_match: deny }\nrules: []\n")
     tools = ToolSet.from_functions(echo)
 
     def make_agent():
@@ -589,11 +585,17 @@ async def test_two_consecutive_runs_with_different_policies_decide_independently
         )
 
     r1 = await run_agent(
-        make_agent(), task="x", tools=tools, policy=allow_policy,
+        make_agent(),
+        task="x",
+        tools=tools,
+        policy=allow_policy,
         on_approval=auto_deny("no"),
     )
     r2 = await run_agent(
-        make_agent(), task="x", tools=tools, policy=deny_policy,
+        make_agent(),
+        task="x",
+        tools=tools,
+        policy=deny_policy,
         on_approval=auto_deny("no"),
     )
     assert r1.bundle_id == allow_policy.id

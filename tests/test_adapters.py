@@ -258,6 +258,7 @@ async def test_openai_assistant_tool_call_round_trip() -> None:
     assert assistant["tool_calls"][0]["function"]["name"] == "shell"
     # The args round-trip as a JSON string.
     import json as _json
+
     assert _json.loads(assistant["tool_calls"][0]["function"]["arguments"]) == {"cmd": "ls"}
     # Position 2 is the tool result.
     assert msgs[2]["role"] == "tool"

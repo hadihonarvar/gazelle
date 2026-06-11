@@ -68,13 +68,13 @@ class LangGraphAgent:
                             tc = tool_calls[0]
                             name = tc.get("name") or tc.get("function", {}).get("name", "")
                             raw_args = (
-                                tc.get("args")
-                                or tc.get("function", {}).get("arguments", {})
-                                or {}
+                                tc.get("args") or tc.get("function", {}).get("arguments", {}) or {}
                             )
-                            args = raw_args if isinstance(raw_args, dict) else {
-                                "_raw_arguments": str(raw_args)
-                            }
+                            args = (
+                                raw_args
+                                if isinstance(raw_args, dict)
+                                else {"_raw_arguments": str(raw_args)}
+                            )
                             return ToolCall(
                                 tool=name,
                                 args=args,

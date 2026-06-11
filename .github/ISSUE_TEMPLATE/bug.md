@@ -16,7 +16,8 @@ labels: bug
 ## Steps to reproduce
 
 ```python
-# Minimal code that reproduces the issue
+# Minimal code that reproduces the issue.
+# Include the @tool decorations, the policy snippet, the ToolSet, and the run_agent call.
 ```
 
 ## Environment
@@ -24,12 +25,13 @@ labels: bug
 - Lynx version: <!-- output of `lynx --version` -->
 - Python version: <!-- output of `python --version` -->
 - OS:
-- Storage backend: <!-- sqlite / postgres -->
-- Relevant adapters: <!-- anthropic / openai / langgraph / crewai / mcp -->
+- Relevant adapters: <!-- anthropic / openai / langgraph / crewai / mcp / none -->
+- Sinks used: <!-- stdout_sink / jsonl_sink / custom / etc. -->
 
-## Logs / audit chain
+## Events observed
 
-<!-- If relevant, attach the output of `lynx trace <run-id>` and any error stack trace. -->
+<!-- If relevant, paste the events your sink saw, especially around the failure.
+     For example: the output of stdout_sink, or the contents of your jsonl_sink target. -->
 
 ## Additional context
 
