@@ -5,25 +5,36 @@
 Pure functions over immutable values. No database. No globals. No leaks. Five verdicts. Streaming events to user-owned sinks.
 
 ```python
+import asyncio
 from lynx import (
-    FinalAnswer, Message, ToolCall, ToolSet, tool,
-    compile_policy, run_agent, stdout_sink, auto_deny,
+    ToolSet, tool, load_policy_file, run_agent,
+    stdout_sink, auto_deny,
 )
 
 @tool(reversible=False, scope=("filesystem:write",))
 async def shell(cmd: str) -> str:
-    proc = await asyncio.create_subprocess_shell(cmd, ...)
-    return (await proc.communicate())[0].decode()
+    proc = await asyncio.create_subprocess_shell(
+        cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    out, _ = await proc.communicate()
+    return out.decode()
 
 result = await run_agent(
     my_agent,
     task="clean up old logs",
     tools=ToolSet.from_functions(shell),
-    policy=compile_policy(open("policy.yaml").read()),
+    policy=load_policy_file("policy.yaml"),
     sinks=(stdout_sink(),),
     on_approval=auto_deny("no approvals configured"),
+    environment="prod",          # policy can match on context.environment
+    # principal=Principal(kind="user", id="hadi"),  # optional
+    # workspace=".",                                 # optional
+    # budget=Budget(steps=50, duration_seconds=600), # optional
+    # correlation_id=None,                           # auto-generated if None
 )
-# result: { correlation_id, final_answer, error, steps_taken, bundle_id }
+# result: { correlation_id, bundle_id, final_answer, error, steps_taken }
 # Lynx holds NOTHING. No DB. No state. No leaks.
 ```
 
@@ -32,9 +43,9 @@ result = await run_agent(
 - **Policy-gated execution** at the tool-call boundary. Five verdicts: `allow / deny / dry_run / approve_required / transform`.
 - **Streaming events** to your sinks. We never store events — your sink can buffer, write to disk, ship to OTel, post to a webhook, whatever you choose.
 - **Pure functions everywhere.** The kernel is one function: `run_agent(agent, task, *, tools, policy, sinks, on_approval, ...)`. No `Runtime` class. No singleton.
-- **Immutable values.** Every public type is `frozen=True, slots=True`. Mutation raises at runtime; `mypy --strict` catches it at write time.
+- **Immutable values.** Every public type is `frozen=True, slots=True`. Mutation raises at runtime; mypy catches it at write time.
 - **No globals.** No tool registry, no broker, no module-level state. ToolSet is built explicitly at call site.
-- **Hot-reloadable policy.** Because we hold no state.
+- **Hot-swappable policy.** Pass a different `PolicyBundle` on the next `run_agent` call — the bundle is an immutable value; the kernel holds nothing between calls. (Mid-run reload is not supported; build a new bundle and use it on the next run.)
 
 ## What v2 does NOT do
 
@@ -92,37 +103,191 @@ Each agent step:
 4. Each step emits a few events; sinks consume them
 5. Result is appended to a new `conversation` tuple; old tuple is freed
 
-## Policy YAML — unchanged from v1
+## Tools — `@tool` and `ToolSet`
 
-```yaml
-version: 1
-defaults:
-  on_no_match: deny
-  on_missing_shadow: approve_required
-
-rules:
-  - id: block-rm-rf-root
-    match:
-      tool: shell
-      args.cmd.matches: '^\s*rm\s+(-[rRf]+\s+)+/(\s|$)'
-    decision: deny
-    reason: "rm -rf / is hard-blocked"
-
-  - id: writes-need-approval
-    match:
-      declared.scope.contains: filesystem:write
-    decision: approve_required
-    approvers: ["sre-oncall"]
-```
-
-Or in Python:
+Every tool is an `async def` decorated with `@tool`. The decorator attaches an
+immutable `ToolDef` to the function (no global registry); you bundle decorated
+functions into a `ToolSet` explicitly at the call site.
 
 ```python
-from lynx.policy import deny
+from lynx import tool
+
+@tool(
+    cost="low",                     # "low" | "medium" | "high" (default "low")
+    reversible=False,               # if False, dry_run requires a .shadow
+    scope=("filesystem:write",),    # free-form tags policy can match on
+    blast_radius_hint=None,         # int | None — opaque to the kernel; readable by your rules via declared.blast_radius_hint
+    name=None,                      # override; default = fn.__name__
+    description=None,               # override; default = first line of docstring
+)
+async def write_file(path: str, content: str) -> str:
+    """Save text to a file."""
+    Path(path).write_text(content)
+    return f"wrote {len(content)} bytes to {path}"
+```
+
+### Shadows — pure previews for `dry_run`
+
+If a tool is irreversible and policy chooses `dry_run`, the kernel calls the
+**shadow** instead of the real function. Shadows must be pure (no I/O, no side
+effects) and return a JSON-serializable preview.
+
+```python
+@write_file.shadow
+async def _write_file_shadow(path: str, content: str) -> dict:
+    p = Path(path)
+    return {
+        "would_write": path,
+        "bytes": len(content.encode()),
+        "would_overwrite": p.exists(),
+        "preview": content[:120],
+    }
+```
+
+If no shadow is registered and policy defaults `on_missing_shadow: approve_required`
+(the default), an irreversible tool with no rule match falls through to approval
+rather than running blind.
+
+Alternative attachment form:
+
+```python
+from lynx import shadow
+
+@shadow(write_file)
+async def _write_file_shadow(path, content): ...
+```
+
+### `ToolSet` — immutable, built at call site
+
+```python
+from lynx import ToolSet
+
+tools = ToolSet.from_functions(write_file, shell, get_customer)
+
+tools.names()                        # ("get_customer", "shell", "write_file")
+tools.get("write_file")              # ToolDef
+tools.with_tool(other_def)           # returns NEW ToolSet
+tools.without_tool("shell")          # returns NEW ToolSet
+tools.union(other_toolset)           # returns NEW ToolSet
+len(tools)                           # 3
+```
+
+Every operation returns a new `ToolSet`; the original is untouched.
+
+## Policy — full reference
+
+A policy is a frozen `PolicyBundle` produced by `compile_policy(yaml_str)` or
+`load_policy_file(path)`. Bundles are content-addressed by `bundle.id` and safe
+to hot-reload — the kernel holds no policy state between calls.
+
+### YAML schema
+
+```yaml
+version: 1                        # int; currently only 1 is defined
+
+defaults:
+  on_no_match: deny               # verdict when no rule matches a request
+  on_missing_shadow: approve_required
+                                  # verdict when no rule matches AND the tool
+                                  # is irreversible AND has no .shadow
+
+predicates:                       # named, reusable matchers
+  in_prod: { context.environment: prod }
+  is_kubectl: { tool: kubectl }
+  is_destructive_sql:
+    tool: sql_exec
+    args.sql.matches: '(?i)\b(UPDATE|DELETE)\b'
+
+rules:
+  - id: hard-block-rm-rf-root     # str; defaults to "rule_<index>"
+    priority: 100                 # int; higher runs first (default 0)
+    description: "..."            # optional, free-form
+    match: { ... }                # see "Match expressions" below
+    decision: deny                # one of the five verdicts
+    reason: "rm -rf / is hard-blocked"
+    approvers: ["sre-oncall@acme.com"]   # only used by approve_required
+    timeout_seconds: 1800                # only used by approve_required
+    transform: { ... }                   # only used by transform
+```
+
+Rules are sorted by `(-priority, file order)`. The first matching rule wins.
+Python rules (see below) are interleaved with YAML rules by priority — a
+higher-priority YAML rule beats a lower-priority Python rule, and vice versa.
+
+### The five verdicts
+
+| Verdict | What the mediator does |
+|---|---|
+| `allow` | Call `tool.fn(**args)` normally. |
+| `deny` | Skip execution. Inject a `[denied]` tool message into the conversation. |
+| `dry_run` | Call `tool.shadow_fn(**args)` instead of `fn`. Real side effects suppressed. |
+| `approve_required` | Call `on_approval(...)` synchronously. On grant, proceed as `allow`; on deny, behave as `deny`. |
+| `transform` | Rewrite `args` per the `transform:` block, then call `fn(**rewritten_args)`. |
+
+### Match expressions
+
+Match expressions read fields off the live `ActionRequest` and `ExecutionContext`.
+
+**Paths** (the part before the operator):
+
+| Path prefix | Reads from |
+|---|---|
+| `tool` | The tool name (string) |
+| `args.<name>...` | The arguments the agent proposed |
+| `declared.<name>` | Tool metadata: `cost`, `reversible`, `scope`, `blast_radius_hint`, `has_shadow` |
+| `context.<name>` | `principal`, `environment`, `workspace`, `correlation_id`, `step_seq`, `timestamp`, `extra` |
+
+**Operators** (suffix the path with `.<op>`):
+
+| Operator | Meaning | Example |
+|---|---|---|
+| (none) / `.eq` | Equality | `tool: kubectl` |
+| `.matches` | Regex `re.search` (RE2-style guards reject catastrophic backtracking) | `args.cmd.matches: '^rm\s+-rf'` |
+| `.in` | Value is in the listed sequence | `args.customer_id.in: ["C-789"]` |
+| `.contains` | Container contains the value | `declared.scope.contains: filesystem:write` |
+| `.contains_any` | Container contains any listed value | `declared.scope.contains_any: [a, b]` |
+| `.contains_all` | Container contains all listed values | `declared.scope.contains_all: [a, b]` |
+| `.gt` `.ge` `.lt` `.le` | Numeric comparison | `args.amount_usd.gt: 500` |
+| `.between` | `lo <= v <= hi` | `args.amount_usd.between: [50, 500]` |
+| `.not_between` | Inverse of `between` | |
+
+**Composition** at any level:
+
+```yaml
+match:
+  all_of:
+    - is_kubectl                       # named predicate
+    - in_prod
+    - args.command.matches: '^(apply|delete|patch)\b'
+  # any_of: [ ... ]
+  # not: { tool: shell }
+```
+
+### `transform:` block
+
+```yaml
+decision: transform
+transform:
+  jsonpath: "$.args.sql"               # default "$.args"; the target arg key
+  append: " AND tenant_id = 'TENANT-A'" # one of: set | append | delete
+```
+
+- `set: <value>` — replace the value at `jsonpath`
+- `append: <value>` — string-concatenate to the existing value
+- `delete: true` — remove the key from `args`
+
+### Python rules
+
+Anything you can't express in YAML, write as a Python predicate. Rules are
+explicit arguments to `compile_policy`; there is no decorator and no registry.
+
+```python
+from lynx import compile_policy
+from lynx.policy import allow, deny, dry_run, approve_required, transform
 
 def block_paths_outside_workspace(req, ctx):
     if req.tool != "shell":
-        return None
+        return None                                   # skip — let YAML decide
     if path_escapes(req.args["cmd"], ctx.workspace):
         return deny("path escapes workspace")
     return None
@@ -130,6 +295,56 @@ def block_paths_outside_workspace(req, ctx):
 bundle = compile_policy(
     yaml_source,
     python_rules=(block_paths_outside_workspace,),
+    python_rule_priorities=(("block_paths_outside_workspace", 100),),
+)
+```
+
+Each Python rule is `(ActionRequest, ExecutionContext) -> Decision | None`.
+Return `None` to defer; the first non-`None` result wins. Python and YAML
+rules are interleaved in a single priority-sorted evaluation order (default
+priority `0`). If a rule raises during evaluation, it is recorded as a
+diagnostic marker in `Decision.matched_rules` (e.g. `<rule_error:my_rule:TypeError>`)
+and evaluation continues — buggy rules never silently fail-open.
+
+### Decision constructors
+
+For Python rules and tests:
+
+```python
+from lynx.policy import allow, deny, dry_run, approve_required, transform
+
+allow(reason="", matched_rules=())
+deny(reason, matched_rules=())
+dry_run(reason="", matched_rules=())
+approve_required(approvers=(), timeout_seconds=1800, reason="", matched_rules=())
+transform(transform_args={"sql": "..."}, reason="", matched_rules=())
+```
+
+### Default behavior when no rule matches
+
+1. If the tool is **irreversible AND has no shadow** → `defaults.on_missing_shadow`
+   (default `approve_required`).
+2. Otherwise → `defaults.on_no_match` (default `deny`).
+
+The matched rule id will be `"<default:on_missing_shadow>"` or
+`"<default:on_no_match>"` so you can see the fall-through in audit events.
+
+### `run_agent` — all kwargs
+
+```python
+result = await run_agent(
+    agent,                              # implements async step(conv) -> ToolCall | FinalAnswer
+    task,                               # str — becomes the first user Message
+    *,
+    tools,                              # ToolSet
+    policy,                             # PolicyBundle
+    sinks=(),                           # Iterable[Sink]
+    on_approval=None,                   # ApprovalHandler; defaults to auto_deny
+    budget=Budget(steps=50, duration_seconds=600),
+    principal=Principal(kind="user", id="anonymous"),
+    environment="dev",                  # policy reads this via context.environment
+    workspace=".",                      # policy reads this via context.workspace
+    correlation_id=None,                # auto-generated UUID4 if None
 )
 ```
 
@@ -189,7 +404,7 @@ The `run_agent` call blocks on the handler. No queue. No broker. No cross-proces
 | 07 | [`07_refund_workflow.py`](examples/07_refund_workflow.py) | Multi-tier refund rules |
 | 08 | [`08_sql_transform.py`](examples/08_sql_transform.py) | TRANSFORM verdict |
 | 09 | [`09_fastapi_service.py`](examples/09_fastapi_service.py) | FastAPI integration |
-| 10 | [`10_devops_assistant.py`](examples/10_devops_assistant.py) | All five verdicts |
+| 10 | [`10_devops_assistant.py`](examples/10_devops_assistant.py) | All five verdicts (one policy, run in staging + prod) |
 | 11 | [`11_flask_service.py`](examples/11_flask_service.py) | Flask integration |
 | 12 | [`12_django_service.py`](examples/12_django_service.py) | Django integration |
 
@@ -233,7 +448,8 @@ v1 will keep getting security fixes per the SECURITY.md policy.
 
 - [`docs/v2-rfc.md`](docs/v2-rfc.md) — the formal RFC this implementation follows
 - [`docs/concepts.md`](docs/concepts.md) — vocabulary
-- [`docs/cookbook.md`](docs/cookbook.md) — policy patterns
+- [`docs/cookbook.md`](docs/cookbook.md) — policy patterns (YAML)
+- [`docs/integration-cookbook.md`](docs/integration-cookbook.md) — wiring patterns for sinks (SQLite / Postgres / Splunk / OTel / HTTP) + approval handlers (Slack / email / webhook) + durability (Temporal)
 - [`docs/faq.md`](docs/faq.md) — common questions
 
 ## License

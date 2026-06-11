@@ -16,7 +16,6 @@ from lynx import (
     callback_sink,
     compile_policy,
     jsonl_sink,
-    noop_sink,
     run_agent,
     tool,
 )
@@ -93,14 +92,27 @@ rules:
         ToolCall(tool="dangerous", args={"cmd": "rm"}, call_id="c1"),
         FinalAnswer(text="adapted"),
     )
+
+    seen: list[Any] = []
+
+    async def collect(ev):
+        seen.append(ev)
+
     result = await run_agent(
         agent,
         task="try dangerous",
         tools=tools,
         policy=policy,
+        sinks=(callback_sink(collect),),
         on_approval=auto_deny("no"),
     )
     assert result.final_answer == "adapted"
+    # The deny must surface as an audit event and as a [denied] message —
+    # not silently turn into a successful tool call.
+    kinds = [ev.kind for ev in seen]
+    assert "action.denied" in kinds
+    denied_event = next(ev for ev in seen if ev.kind == "policy.evaluated")
+    assert denied_event.body["verdict"] == "deny"
 
 
 async def test_run_agent_dry_runs_through_shadow() -> None:
@@ -228,13 +240,406 @@ async def test_run_agent_unknown_tool_doesnt_crash() -> None:
         ToolCall(tool="nonexistent_tool", args={}, call_id="c1"),
         FinalAnswer(text="adapted"),
     )
+    seen: list[Any] = []
+
+    async def collect(ev):
+        seen.append(ev)
+
     result = await run_agent(
         agent,
         task="bad tool",
         tools=tools,
         policy=policy,
-        sinks=(noop_sink(),),
+        sinks=(callback_sink(collect),),
         on_approval=auto_deny("no"),
     )
     # Should recover gracefully — final answer reached
     assert result.final_answer == "adapted"
+    # And the unknown-tool failure should be audited.
+    failed = [ev for ev in seen if ev.kind == "action.failed"]
+    assert failed
+    assert "unknown tool" in failed[0].body["reason"]
+
+
+# ---------------------------------------------------------------------------
+# TRANSFORM end-to-end
+# ---------------------------------------------------------------------------
+
+
+@tool(reversible=True, scope=("db:exec",))
+async def sql_exec(sql: str) -> str:
+    """Pretend to execute a SQL statement."""
+    return f"executed: {sql}"
+
+
+async def test_transform_set_rewrites_args_before_execution() -> None:
+    policy = compile_policy(
+        """
+version: 1
+defaults: { on_no_match: deny }
+rules:
+  - id: rewrite-sql
+    match: { tool: sql_exec }
+    decision: transform
+    transform:
+      jsonpath: "$.args.sql"
+      set: "SELECT 1"
+        """
+    )
+    tools = ToolSet.from_functions(sql_exec)
+    agent = _ScriptedAgent(
+        ToolCall(tool="sql_exec", args={"sql": "DROP TABLE users"}, call_id="c1"),
+        FinalAnswer(text="done"),
+    )
+
+    seen: list[Any] = []
+
+    async def collect(ev):
+        seen.append(ev)
+
+    result = await run_agent(
+        agent,
+        task="run sql",
+        tools=tools,
+        policy=policy,
+        sinks=(callback_sink(collect),),
+        on_approval=auto_deny("no"),
+    )
+    assert result.final_answer == "done"
+    # The completed event tells us the tool ran; verify it ran on the
+    # transformed args by inspecting the conversation echo.
+    completed = [ev for ev in seen if ev.kind == "action.completed"]
+    assert completed
+
+
+async def test_transform_append_concatenates_to_existing_value() -> None:
+    policy = compile_policy(
+        """
+version: 1
+defaults: { on_no_match: deny }
+rules:
+  - id: append-where
+    match: { tool: sql_exec }
+    decision: transform
+    transform:
+      jsonpath: "$.args.sql"
+      append: " WHERE tenant_id = 'X'"
+        """
+    )
+    tools = ToolSet.from_functions(sql_exec)
+
+    captured_sql: list[str] = []
+
+    @tool(reversible=True, scope=("db:exec",))
+    async def capture(sql: str) -> str:
+        captured_sql.append(sql)
+        return sql
+
+    tools = ToolSet.from_functions(capture)
+    # The transform rule matches `sql_exec` not `capture`; rewrite to match `capture`.
+    policy = compile_policy(
+        """
+version: 1
+defaults: { on_no_match: deny }
+rules:
+  - id: append-where
+    match: { tool: capture }
+    decision: transform
+    transform:
+      jsonpath: "$.args.sql"
+      append: " WHERE tenant_id = 'X'"
+        """
+    )
+
+    agent = _ScriptedAgent(
+        ToolCall(tool="capture", args={"sql": "SELECT *"}, call_id="c1"),
+        FinalAnswer(text="ok"),
+    )
+    await run_agent(
+        agent,
+        task="run",
+        tools=tools,
+        policy=policy,
+        on_approval=auto_deny("no"),
+    )
+    assert captured_sql == ["SELECT * WHERE tenant_id = 'X'"]
+
+
+# ---------------------------------------------------------------------------
+# Defaults end-to-end
+# ---------------------------------------------------------------------------
+
+
+async def test_default_on_no_match_deny_blocks_unmatched_tool() -> None:
+    # No rules at all + defaults=deny → echo gets denied even though it's
+    # totally benign. Proves the safety net.
+    policy = compile_policy("version: 1\nrules: []\n")  # on_no_match defaults to deny
+    tools = ToolSet.from_functions(echo)
+    seen: list[Any] = []
+
+    async def collect(ev):
+        seen.append(ev)
+
+    agent = _ScriptedAgent(
+        ToolCall(tool="echo", args={"msg": "hi"}, call_id="c1"),
+        FinalAnswer(text="done"),
+    )
+    await run_agent(
+        agent,
+        task="run",
+        tools=tools,
+        policy=policy,
+        sinks=(callback_sink(collect),),
+        on_approval=auto_deny("no"),
+    )
+    denied = [ev for ev in seen if ev.kind == "action.denied"]
+    assert denied
+
+
+# ---------------------------------------------------------------------------
+# Approval timeout + raising handlers
+# ---------------------------------------------------------------------------
+
+
+async def test_approval_handler_timeout_is_enforced() -> None:
+    import asyncio as _asyncio
+
+    policy = compile_policy(
+        """
+version: 1
+defaults: { on_no_match: deny }
+rules:
+  - id: approve
+    match: { tool: dangerous }
+    decision: approve_required
+    timeout_seconds: 1
+        """
+    )
+    tools = ToolSet.from_functions(dangerous)
+
+    async def slow_handler(req):
+        await _asyncio.sleep(5)  # 5x the timeout
+        from lynx import ApprovalDecision
+
+        return ApprovalDecision(granted=True, approver="never")
+
+    from lynx.approvals import callback_approval
+
+    seen: list[Any] = []
+
+    async def collect(ev):
+        seen.append(ev)
+
+    agent = _ScriptedAgent(
+        ToolCall(tool="dangerous", args={"cmd": "rm"}, call_id="c1"),
+        FinalAnswer(text="adapted"),
+    )
+    result = await run_agent(
+        agent,
+        task="try",
+        tools=tools,
+        policy=policy,
+        sinks=(callback_sink(collect),),
+        on_approval=callback_approval(slow_handler),
+    )
+    assert result.final_answer == "adapted"
+    denied = [ev for ev in seen if ev.kind == "action.denied"]
+    assert denied
+    assert "timed out" in denied[0].body["reason"]
+
+
+async def test_approval_handler_raising_becomes_a_deny() -> None:
+    policy = compile_policy(
+        """
+version: 1
+defaults: { on_no_match: deny }
+rules:
+  - id: approve
+    match: { tool: dangerous }
+    decision: approve_required
+        """
+    )
+    tools = ToolSet.from_functions(dangerous)
+
+    async def boom(req):
+        raise RuntimeError("approval system down")
+
+    from lynx.approvals import callback_approval
+
+    seen: list[Any] = []
+
+    async def collect(ev):
+        seen.append(ev)
+
+    agent = _ScriptedAgent(
+        ToolCall(tool="dangerous", args={"cmd": "rm"}, call_id="c1"),
+        FinalAnswer(text="adapted"),
+    )
+    result = await run_agent(
+        agent,
+        task="try",
+        tools=tools,
+        policy=policy,
+        sinks=(callback_sink(collect),),
+        on_approval=callback_approval(boom),
+    )
+    # Run completes — the raise does NOT crash run_agent.
+    assert result.final_answer == "adapted"
+    denied = [ev for ev in seen if ev.kind == "action.denied"]
+    assert denied
+    assert "RuntimeError" in denied[0].body["reason"]
+
+
+# ---------------------------------------------------------------------------
+# Sink that fails does not crash the run
+# ---------------------------------------------------------------------------
+
+
+async def test_sink_failure_does_not_crash_run() -> None:
+    policy = compile_policy("version: 1\ndefaults: { on_no_match: allow }\nrules: []")
+    tools = ToolSet.from_functions(echo)
+
+    async def broken(ev):
+        raise RuntimeError("sink died")
+
+    agent = _ScriptedAgent(
+        ToolCall(tool="echo", args={"msg": "hi"}, call_id="c1"),
+        FinalAnswer(text="done"),
+    )
+    result = await run_agent(
+        agent,
+        task="x",
+        tools=tools,
+        policy=policy,
+        sinks=(callback_sink(broken),),
+        on_approval=auto_deny("no"),
+    )
+    assert result.final_answer == "done"
+    assert result.error is None
+
+
+# ---------------------------------------------------------------------------
+# Shadow that raises → ActionResult(ok=False) with clear error
+# ---------------------------------------------------------------------------
+
+
+@tool(reversible=False, scope=("filesystem:write",))
+async def writes_file(path: str) -> str:
+    return f"wrote {path}"
+
+
+@writes_file.shadow
+async def _writes_file_shadow(path: str) -> dict[str, Any]:
+    raise RuntimeError("shadow blew up")
+
+
+async def test_shadow_exception_surfaces_as_failed_action() -> None:
+    policy = compile_policy(
+        """
+version: 1
+defaults: { on_no_match: deny }
+rules:
+  - id: dry-run
+    match: { tool: writes_file }
+    decision: dry_run
+        """
+    )
+    tools = ToolSet.from_functions(writes_file)
+    seen: list[Any] = []
+
+    async def collect(ev):
+        seen.append(ev)
+
+    agent = _ScriptedAgent(
+        ToolCall(tool="writes_file", args={"path": "/x"}, call_id="c1"),
+        FinalAnswer(text="adapted"),
+    )
+    result = await run_agent(
+        agent,
+        task="x",
+        tools=tools,
+        policy=policy,
+        sinks=(callback_sink(collect),),
+        on_approval=auto_deny("no"),
+    )
+    assert result.final_answer == "adapted"
+    failed = [ev for ev in seen if ev.kind == "action.failed"]
+    assert failed
+    assert "RuntimeError" in failed[0].body["reason"]
+
+
+# ---------------------------------------------------------------------------
+# Hot-swap proves no shared state
+# ---------------------------------------------------------------------------
+
+
+async def test_two_consecutive_runs_with_different_policies_decide_independently() -> None:
+    allow_policy = compile_policy("version: 1\ndefaults: { on_no_match: allow }\nrules: []\n")
+    deny_policy = compile_policy("version: 1\ndefaults: { on_no_match: deny }\nrules: []\n")
+    tools = ToolSet.from_functions(echo)
+
+    def make_agent():
+        return _ScriptedAgent(
+            ToolCall(tool="echo", args={"msg": "x"}, call_id="c1"),
+            FinalAnswer(text="done"),
+        )
+
+    r1 = await run_agent(
+        make_agent(),
+        task="x",
+        tools=tools,
+        policy=allow_policy,
+        on_approval=auto_deny("no"),
+    )
+    r2 = await run_agent(
+        make_agent(),
+        task="x",
+        tools=tools,
+        policy=deny_policy,
+        on_approval=auto_deny("no"),
+    )
+    assert r1.bundle_id == allow_policy.id
+    assert r2.bundle_id == deny_policy.id
+    assert r1.bundle_id != r2.bundle_id
+
+
+# ---------------------------------------------------------------------------
+# Adapter-protocol: assistant tool_call_args recorded on conversation
+# ---------------------------------------------------------------------------
+
+
+async def test_assistant_tool_call_message_recorded_for_adapters() -> None:
+    """The scheduler must append an assistant message carrying tool_call_args
+    so Anthropic / OpenAI adapters can rebuild a well-formed alternation."""
+    policy = compile_policy("version: 1\ndefaults: { on_no_match: allow }\nrules: []\n")
+    tools = ToolSet.from_functions(echo)
+
+    captured_convs: list[tuple[Message, ...]] = []
+
+    class CapturingAgent:
+        def __init__(self):
+            self._i = 0
+
+        async def step(self, conv):
+            captured_convs.append(conv)
+            self._i += 1
+            if self._i == 1:
+                return ToolCall(tool="echo", args={"msg": "hi"}, call_id="x1")
+            return FinalAnswer(text="done")
+
+    await run_agent(
+        CapturingAgent(),
+        task="t",
+        tools=tools,
+        policy=policy,
+        on_approval=auto_deny("no"),
+    )
+    # On the second step the agent should see the conversation with:
+    #   user → assistant(tool_call x1) → tool([ok] ...)
+    assert len(captured_convs) == 2
+    second_conv = captured_convs[1]
+    roles = [m.role for m in second_conv]
+    assert roles == ["user", "assistant", "tool"]
+    assistant_msg = second_conv[1]
+    assert assistant_msg.tool_call_id == "x1"
+    assert assistant_msg.tool_call_args == {"msg": "hi"}

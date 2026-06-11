@@ -54,31 +54,40 @@ rules:
 
 
 async def main() -> None:
+    tools = ToolSet.from_functions(shell)
+
+    # Adapters that auto-create their SDK client own its lifetime; using them
+    # as `async with` releases the HTTP/2 connection pool cleanly. Without
+    # this, the pool lingers until garbage collection.
     if os.getenv("ANTHROPIC_API_KEY"):
         from lynx.adapters.anthropic_sdk import ClaudeAgent
 
-        agent = ClaudeAgent(
+        async with ClaudeAgent(
+            tools=tools,
             model="claude-opus-4-7",
             system="You are a careful sysadmin. Inspect freely, modify nothing.",
-        )
-        provider = "Anthropic Claude"
+        ) as agent:
+            await _run("Anthropic Claude", agent, tools)
     elif os.getenv("OPENAI_API_KEY"):
         from lynx.adapters.openai_sdk import OpenAIAgent
 
-        agent = OpenAIAgent(
+        async with OpenAIAgent(
+            tools=tools,
             model="gpt-5",
             system="You are a careful sysadmin. Inspect freely, modify nothing.",
-        )
-        provider = "OpenAI GPT"
+        ) as agent:
+            await _run("OpenAI GPT", agent, tools)
     else:
         print("Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
         return
 
+
+async def _run(provider: str, agent, tools: ToolSet) -> None:
     print(f"Using: {provider}")
     result = await run_agent(
         agent,
         task="Inspect /tmp without modifying anything; summarize when done.",
-        tools=ToolSet.from_functions(shell),
+        tools=tools,
         policy=compile_policy(POLICY),
         sinks=(stdout_sink(),),
         on_approval=auto_deny("not configured"),

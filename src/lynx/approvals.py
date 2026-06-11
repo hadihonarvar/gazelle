@@ -11,6 +11,7 @@ Slack, a database, a webhook — whatever. Lynx is stateless.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Protocol, runtime_checkable
 
@@ -51,7 +52,12 @@ def auto_deny(reason: str) -> ApprovalHandler:
 
 
 def cli_prompt_approval(approver: str = "local") -> ApprovalHandler:
-    """Prompt on stdin. ``y``/``yes`` → grant; anything else → deny."""
+    """Prompt on stdin. ``y``/``yes`` → grant; anything else → deny.
+
+    The blocking ``input()`` call runs in a worker thread so the event loop
+    keeps spinning — sinks continue to drain and other approvals' timeouts
+    keep ticking while a human is thinking.
+    """
 
     async def handler(req: ApprovalRequest) -> ApprovalDecision:
         prompt = (
@@ -61,7 +67,7 @@ def cli_prompt_approval(approver: str = "local") -> ApprovalHandler:
             f"  reason: {req.decision.reason}\n"
             f"Approve? [y/N] "
         )
-        ans = input(prompt).strip().lower()
+        ans = (await asyncio.to_thread(input, prompt)).strip().lower()
         granted = ans in {"y", "yes"}
         return ApprovalDecision(
             granted=granted,

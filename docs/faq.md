@@ -11,6 +11,8 @@ Wherever you point the sinks. v2 holds nothing. Common choices:
 - `jsonl_sink(open("audit.jsonl", "a"))` — to disk; you own retention
 - Custom `callback_sink(fn)` — ship to OTel, Datadog, Splunk, your bus
 
+See the [integration cookbook](integration-cookbook.md) for ready-to-paste recipes covering SQLite, PostgreSQL, OpenTelemetry, Splunk HEC, generic HTTP POST, Slack approvals, and wrapping `run_agent` in Temporal for durability.
+
 ### Can I get the v1 hash-chained audit chain?
 
 Not in v2. If you need it: `pip install "lynx-agent<2.0"`. We keep v1.0.x security-patched.
@@ -67,11 +69,16 @@ async def handler():
 
 ### Do I need to clean up anything?
 
-No. v2 holds no file handles, no DB connections, no sockets, no subprocess refs. Your sinks own their files; close them when you're done. The subprocess sandbox auto-cleans its temp dir.
+The kernel itself holds nothing across calls. But:
+
+- **Your sinks own their files.** Close them when you're done.
+- **The MCP adapter** runs a child process for the lifetime of the `async with` block — exit the block (or the program crashes will GC the pipe).
+- **The LLM adapters (`ClaudeAgent` / `OpenAIAgent`)** auto-create an `AsyncAnthropic` / `AsyncOpenAI` client when you don't pass one in. That client has an HTTP/2 connection pool. Use the agent as an async context manager (or call `agent.aclose()`) to release it. For services, share one client across all requests instead.
+- **The subprocess sandbox** auto-cleans its temp dir, and kills + reaps the child on any exit path.
 
 ### Is mypy strict required for users?
 
-No. Strict typing is enforced **inside** the Lynx source for our quality. Users get the type annotations; you can use mypy strict or not.
+No. You get the type annotations and can run mypy at whatever level you prefer. Inside Lynx, `mypy --strict` is a target we're moving toward but not yet a hard CI gate — it's an advisory check today.
 
 ### Can I use it inside FastAPI / Django / Flask?
 
@@ -79,7 +86,18 @@ Yes — see `examples/09_fastapi_service.py`, `11_flask_service.py`, `12_django_
 
 ### What about MCP?
 
-`lynx.adapters.mcp.register_mcp_server(command) -> list[str]` returns the names of tools registered. In v2 this stays compatible; MCP servers are wrapped as `@tool`-decorated functions and bundled into a `ToolSet`.
+`lynx.adapters.mcp.mcp_tools(command)` is an async context manager that starts the MCP server as a child process, discovers its tools, and yields an immutable `ToolSet`. The server stays alive for the duration of the `async with` block:
+
+```python
+from lynx.adapters.mcp import mcp_tools
+
+async with mcp_tools("python -m my_mcp_server") as remote:
+    tools = remote.union(ToolSet.from_functions(local_tool))
+    await run_agent(agent, task=..., tools=tools, policy=...)
+# server + stdio pipes torn down here
+```
+
+No global registration. The MCP defaults are conservative (`reversible=False`, scope `mcp:tool`) so policies must explicitly allow them.
 
 ### How do I file a security issue?
 

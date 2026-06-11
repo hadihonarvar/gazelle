@@ -1,19 +1,21 @@
-"""OpenAI GPT adapter.
+"""OpenAI GPT adapter — v2.
 
-Wraps the OpenAI Chat Completions API into the Lynx Agent protocol.
+Wraps the OpenAI Chat Completions API into the Lynx ``Agent`` protocol.
+The adapter takes a ``ToolSet`` at construction (no global registry).
 
 Example::
 
-    from lynx import tool, runtime
+    from lynx import ToolSet, tool, run_agent, compile_policy
     from lynx.adapters.openai_sdk import OpenAIAgent
 
-    @tool(reversible=False, scope=["filesystem:write"])
+    @tool(reversible=False, scope=("filesystem:write",))
     async def shell(cmd: str) -> str: ...
 
-    agent = OpenAIAgent(model="gpt-5", system="You are a careful sysadmin.")
-    await runtime.run(agent, task="clean up /tmp", policy="policy.yaml")
+    tools = ToolSet.from_functions(shell)
+    agent = OpenAIAgent(tools=tools, model="gpt-5", system="...")
+    await run_agent(agent, "...", tools=tools, policy=compile_policy(...))
 
-Requires `pip install lynx-agent[openai]` (or `pip install openai`).
+Requires ``pip install lynx-agent[openai]`` (or ``pip install openai``).
 """
 
 from __future__ import annotations
@@ -21,16 +23,29 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from lynx.adapters.anthropic_sdk import _signature_to_json_schema
-from lynx.core.mediator import get_registry
-from lynx.sdk import FinalAnswer, Message, ToolCall
+from lynx.adapters._schema import toolset_to_openai_tools
+from lynx.core.types import FinalAnswer, Message, ToolCall, ToolSet
+
+__all__ = ["OpenAIAgent"]
 
 
 class OpenAIAgent:
-    """An Agent that delegates step() to OpenAI's GPT."""
+    """An ``Agent`` that delegates ``step()`` to OpenAI's GPT.
+
+    Stateless across calls: each ``step()`` rebuilds the request from the
+    immutable conversation it receives.
+
+    **Client lifetime.** ``AsyncOpenAI`` keeps an internal HTTP/2 connection
+    pool. If you let ``OpenAIAgent`` auto-construct one (``client=None``), the
+    agent owns it: use the agent as an async context manager or call
+    ``aclose()`` when done. For high-throughput services, share one client
+    across all agents (see ``ClaudeAgent`` docstring for the pattern).
+    """
 
     def __init__(
         self,
+        *,
+        tools: ToolSet,
         model: str = "gpt-5",
         system: str = "",
         client: Any | None = None,
@@ -43,52 +58,73 @@ class OpenAIAgent:
                     "OpenAIAgent requires the 'openai' package. Install with: pip install openai"
                 ) from exc
             client = AsyncOpenAI()
-        self.client = client
-        self.model = model
-        self.system = system
+            self._owns_client = True
+        else:
+            self._owns_client = False
+        self._client = client
+        self._tools = tools
+        self._tool_defs = toolset_to_openai_tools(tools)
+        self._model = model
+        self._system = system
 
-    async def step(self, conversation: list[Message]):
-        tools = _tools_for_openai()
-        messages = _to_openai_messages(conversation, self.system)
-        kwargs: dict[str, Any] = {"model": self.model, "messages": messages}
-        if tools:
-            kwargs["tools"] = tools
+    async def aclose(self) -> None:
+        """Release the underlying OpenAI client's HTTP connection pool.
 
-        response = await self.client.chat.completions.create(**kwargs)
+        Only closes the client when OpenAIAgent instantiated it (``client=None``
+        at construction). If the caller passed a client in, the caller owns it
+        and we leave it alone.
+        """
+        if self._owns_client:
+            close = getattr(self._client, "aclose", None)
+            if close is not None:
+                await close()
+
+    async def __aenter__(self) -> OpenAIAgent:
+        return self
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+        await self.aclose()
+
+    async def step(self, conversation: tuple[Message, ...]) -> ToolCall | FinalAnswer:
+        kwargs: dict[str, Any] = {
+            "model": self._model,
+            "messages": _to_openai_messages(conversation, self._system),
+        }
+        if self._tool_defs:
+            kwargs["tools"] = self._tool_defs
+
+        response = await self._client.chat.completions.create(**kwargs)
+        if not response.choices:
+            return FinalAnswer(text="(no choices returned)")
         choice = response.choices[0].message
 
-        if choice.tool_calls:
+        if getattr(choice, "tool_calls", None):
+            # OpenAI can emit parallel tool_calls; Lynx mediates one per step.
+            # We surface the first; subsequent steps will see the assistant
+            # tool_calls message and can pick up the rest.
             call = choice.tool_calls[0]
+            raw = call.function.arguments or "{}"
             try:
-                args = json.loads(call.function.arguments or "{}")
+                args = json.loads(raw)
+                if not isinstance(args, dict):
+                    args = {"_raw_arguments": raw}
             except json.JSONDecodeError:
-                args = {}
+                # Don't silently drop the malformed string — surface it so
+                # audit/debugging shows what the model actually sent.
+                args = {"_raw_arguments": raw}
             return ToolCall(tool=call.function.name, args=args, call_id=call.id)
         return FinalAnswer(text=choice.content or "(no response)")
 
 
-# ---------------------------------------------------------------------------
-# Translation
-# ---------------------------------------------------------------------------
+def _to_openai_messages(conversation: tuple[Message, ...], system: str) -> list[dict[str, Any]]:
+    """Translate Lynx Messages into the OpenAI Chat Completions shape.
 
+    Assistant messages that carry ``tool_call_args`` (recorded by the Lynx
+    scheduler) are translated into a ``tool_calls`` array so the API sees a
+    well-formed assistant→tool→assistant flow.
+    """
+    import json as _json
 
-def _tools_for_openai() -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for name, registered in get_registry().all().items():
-        out.append(
-            {
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "description": registered.description or f"Tool {name}",
-                    "parameters": _signature_to_json_schema(registered),
-                },
-            }
-        )
-    return out
-
-
-def _to_openai_messages(conversation: list[Message], system: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     if system:
         out.append({"role": "system", "content": system})
@@ -98,7 +134,24 @@ def _to_openai_messages(conversation: list[Message], system: str) -> list[dict[s
         elif m.role == "user":
             out.append({"role": "user", "content": m.content})
         elif m.role == "assistant":
-            out.append({"role": "assistant", "content": m.content})
+            if m.tool_call_args is not None and m.tool_call_id:
+                entry: dict[str, Any] = {
+                    "role": "assistant",
+                    "content": m.content or None,
+                    "tool_calls": [
+                        {
+                            "id": m.tool_call_id,
+                            "type": "function",
+                            "function": {
+                                "name": m.name or "",
+                                "arguments": _json.dumps(dict(m.tool_call_args)),
+                            },
+                        }
+                    ],
+                }
+                out.append(entry)
+            elif m.content:
+                out.append({"role": "assistant", "content": m.content})
         elif m.role == "tool":
             out.append(
                 {
@@ -108,6 +161,3 @@ def _to_openai_messages(conversation: list[Message], system: str) -> list[dict[s
                 }
             )
     return out
-
-
-__all__ = ["OpenAIAgent"]

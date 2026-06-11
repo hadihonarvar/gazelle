@@ -20,7 +20,7 @@ Open an issue using one of the [templates](.github/ISSUE_TEMPLATE/) — `bug`, `
 ## Proposing changes
 
 1. **Open an issue first** for non-trivial changes — saves you wasted effort if the design doesn't fit. Trivial fixes (typos, small bugs, clearer error messages) can skip straight to a PR.
-2. **Branch from `main`**, with a name like `fix/policy-regex-timeout` or `feat/postgres-store`.
+2. **Branch from `main`**, with a name like `fix/regex-redos-guard` or `feat/sinks-otel`.
 3. **One logical change per PR.** Smaller PRs land faster.
 4. **Tests required** for new behavior. Bug fixes should include a regression test.
 5. **Update docs** when you change the public API or CLI surface.
@@ -30,20 +30,51 @@ Open an issue using one of the [templates](.github/ISSUE_TEMPLATE/) — `bug`, `
 
 These are load-bearing — please don't break them:
 
-1. **`core/` has zero I/O.** It's pure functions and state machines. If you need to do I/O, it goes in `stores/`, `adapters/`, `transports/`, or `cli/`.
-2. **The PDP is deterministic.** No network, no clocks read inside policy evaluation, no random. Same input must always produce the same `Decision`.
-3. **The audit chain is append-only.** If you find yourself wanting to mutate a past `AuditEvent`, you're solving the wrong problem.
-4. **Tools must be async.** A sync tool is `asyncio.to_thread(...)` away from being async; please wrap rather than introducing sync paths into the kernel.
-5. **No breaking changes to the public API in patch releases.** We follow SemVer strictly from v1.0 onwards.
+1. **`core/` is pure.** No I/O. No globals. No clocks read inside policy evaluation. Functions take inputs and return outputs.
+2. **Every public type is `frozen=True, slots=True`.** Mutation returns a new value; never mutate in place.
+3. **No module-level mutable state.** No registries, no brokers, no module-level singletons. State flows through function arguments.
+4. **The PDP is deterministic.** Same `(bundle, request, context)` always produces the same `Decision`.
+5. **Lynx holds nothing on disk or in memory beyond a single `run_agent` call.** Sinks and approval handlers are the user's responsibility.
+6. **Tools must be async.** A sync function is `asyncio.to_thread(...)` away from being async; please wrap rather than introducing sync paths into the kernel.
+7. **No `Any` in the public API.** Use `Mapping`, `Sequence`, `tuple`, generic Protocols.
+8. **No breaking changes to the public API in minor or patch releases.** Major versions only, with a documented deprecation cycle.
+
+## Adding a new sink
+
+`src/lynx/sinks.py` — add a factory returning a `Sink`-conforming async callable:
+
+```python
+def my_sink(target: Resource) -> Sink:
+    async def sink(event: AuditEvent) -> None:
+        await target.write(canonical_json(event))
+    return sink
+```
+
+Then add tests in `tests/test_sinks_and_approvals.py`.
+
+## Adding a new approval handler
+
+`src/lynx/approvals.py` — add a factory returning an `ApprovalHandler`:
+
+```python
+def my_handler(...) -> ApprovalHandler:
+    async def handler(req: ApprovalRequest) -> ApprovalDecision:
+        ...
+        return ApprovalDecision(granted=..., approver=..., reason=...)
+    return handler
+```
+
+Then add tests.
 
 ## Adding a new adapter
 
 The smallest viable PR for a new framework adapter:
 
-1. `src/lynx/adapters/<framework>.py` — a class that satisfies the `Agent` protocol (`async def step(conversation) -> ToolCall | FinalAnswer`).
-2. `tests/test_adapter_<framework>.py` — mock the framework's client; assert the message translation + tool-call extraction.
+1. `src/lynx/adapters/<framework>.py` — a class that satisfies the `Agent` protocol (`async def step(conversation: tuple[Message, ...]) -> ToolCall | FinalAnswer`).
+2. Tests in `tests/test_adapters.py` — mock the framework's client; assert message translation + tool-call extraction + (for HTTP-pool-backed SDKs) that auto-created clients are closed via `aclose()` / `__aexit__`.
 3. `examples/<framework>_demo.py` — a runnable demo using the new adapter.
 4. Update the README's adapter list.
+5. Add a `[framework]` optional extra to `pyproject.toml`.
 
 ## Adding a new shadow
 
@@ -52,8 +83,9 @@ The smallest viable PR for a new framework adapter:
 ## Coding style
 
 - Python 3.11+
-- `ruff` for lint + format
-- `mypy --strict` for types
+- `ruff` for lint + format (hard CI gate)
+- `pytest` for tests (hard CI gate)
+- `mypy src` runs as an advisory check in CI; please don't add new errors. Running `mypy --strict` cleanly is a target we're moving toward.
 - One blank line between methods, two between top-level definitions
 - Docstrings on every public function — short and useful, not ceremonial
 
@@ -61,8 +93,8 @@ The smallest viable PR for a new framework adapter:
 
 Conventional Commits style:
 
-- `fix: policy regex denial-of-service guard`
-- `feat(stores): postgres backend`
+- `fix: regex redos guard`
+- `feat(sinks): otel_sink`
 - `docs: clarify approve flow`
 - `test: cover budget exhaustion`
 - `chore: bump ruff to 0.6`
@@ -72,7 +104,7 @@ Conventional Commits style:
 Maintainers only:
 
 1. Update `CHANGELOG.md`
-2. Bump version in `pyproject.toml` and `src/lynx/__init__.py`
+2. Bump version in `src/lynx/__init__.py` (`pyproject.toml` reads it dynamically)
 3. `git tag vX.Y.Z` + push tag
 4. GitHub Actions handles wheel build + PyPI publish via OIDC trusted publishing
 

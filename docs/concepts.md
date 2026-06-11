@@ -47,11 +47,11 @@ Frozen dataclass returned by the PDP. Includes the verdict, reason, matched rule
 
 ## Policy
 
-A YAML document plus optional Python rules, compiled into a `PolicyBundle`. The bundle has a content-addressed `id` (sha256-prefix of canonical JSON of its rules). Pass to `run_agent` for the kernel to consult.
+A YAML document plus optional Python rules, compiled into a `PolicyBundle`. The bundle has a content-addressed `id` (first 16 hex chars of sha256 over the canonical compiled form: version + defaults + every rule body + every Python rule's (name, priority)). Pass to `run_agent` for the kernel to consult.
 
 ## PolicyBundle
 
-Frozen, immutable. The `id` is a deterministic hash; equal bundles have equal IDs. Surfaced in every event for attestation.
+Frozen, immutable. The `id` is a deterministic hash over the full compiled content — two policies that differ only in a rule's body produce different IDs, even when the rule names match. Surfaced in every event for attestation.
 
 ## PDP
 
@@ -127,10 +127,11 @@ No hash chain. No content addressing. Your sink decides retention.
 | `policy.evaluated` | PDP returned a Decision |
 | `action.started` | Real tool about to run (allow / transform / approval-granted) |
 | `action.dry_run` | Shadow about to run |
-| `action.completed` | Tool returned ok |
-| `action.failed` | Tool raised or denial |
-| `action.denied` | Policy denial path |
-| `approval.requested` | `approve_required` verdict |
+| `action.completed` | Real tool returned ok |
+| `action.dry_run_completed` | Shadow returned ok — distinct so consumers don't conflate previews with side effects |
+| `action.failed` | Real tool raised, OR shadow raised, OR unknown tool |
+| `action.denied` | Policy denied — `deny` verdict, OR an `approve_required` verdict whose handler refused (or timed out, or raised) |
+| `approval.requested` | `approve_required` verdict, before calling the handler |
 | `approval.granted` | Handler returned `granted=True` |
 | `approval.denied` | Handler returned `granted=False` |
 | `run.succeeded` | Agent returned FinalAnswer |
@@ -146,11 +147,20 @@ Principal(kind="user" | "service" | "agent", id="...", name="...")
 
 ## Budget
 
-Frozen. Hard caps the kernel enforces.
+Frozen. Hard caps the kernel enforces between steps. Both fields are optional except `steps`, which defaults to 50:
 
 ```python
-Budget(steps=50, duration_seconds=600, usd=..., tokens=...)
+@dataclass(frozen=True, slots=True)
+class Budget:
+    duration_seconds: int | None = None
+    steps: int | None = 50
 ```
+
+The scheduler uses a monotonic clock for `duration_seconds`, so wall-clock NTP jumps cannot exhaust (or extend) the budget. Checks happen between steps; a single hung tool call is not interrupted by `duration_seconds` — use a tool-level timeout for that.
+
+`run_agent`'s default for its `budget=` parameter is `Budget(steps=50, duration_seconds=600)` — a 50-step / 10-minute cap. Override per call to widen or tighten.
+
+> v2.0 removed the `usd` and `tokens` fields that v1 carried: neither was enforced by the kernel. Token/spend accounting belongs in a sink (or an adapter wrapping the LLM call), not in the policy boundary.
 
 ## ExecutionContext
 

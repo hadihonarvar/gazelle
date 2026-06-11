@@ -80,9 +80,14 @@ class Principal:
 
 @dataclass(frozen=True, slots=True)
 class Budget:
-    usd: float | None = None
+    """Hard caps enforced by the scheduler.
+
+    Only ``steps`` and ``duration_seconds`` are enforced by the kernel; both are
+    checked between steps. ``duration_seconds`` uses a monotonic clock so wall-clock
+    jumps do not exhaust it.
+    """
+
     duration_seconds: int | None = None
-    tokens: int | None = None
     steps: int | None = 50
 
 
@@ -140,7 +145,8 @@ class ToolSet:
         """Build a ToolSet from functions decorated with ``@tool``.
 
         Each function must carry ``__lynx_meta__`` (set by the decorator).
-        Functions without that attribute raise ``TypeError``.
+        Functions without that attribute raise ``TypeError``. Two tools with the
+        same name raise ``ValueError`` — silent overwrite would be a footgun.
         """
         out: dict[str, ToolDef] = {}
         for fn in fns:
@@ -149,10 +155,17 @@ class ToolSet:
                 raise TypeError(
                     f"{fn.__name__} is not decorated with @tool — cannot include in ToolSet"
                 )
+            if meta.name in out:
+                raise ValueError(f"Duplicate tool name {meta.name!r} in ToolSet.from_functions")
             out[meta.name] = meta
         return cls(tools=MappingProxyType(out))
 
     def with_tool(self, t: ToolDef) -> ToolSet:
+        if t.name in self.tools:
+            raise ValueError(
+                f"ToolSet already contains a tool named {t.name!r}; "
+                "use without_tool first or build a new ToolSet"
+            )
         return ToolSet(tools=MappingProxyType({**self.tools, t.name: t}))
 
     def without_tool(self, name: str) -> ToolSet:
@@ -161,6 +174,9 @@ class ToolSet:
         return ToolSet(tools=MappingProxyType(new))
 
     def union(self, other: ToolSet) -> ToolSet:
+        overlap = set(self.tools) & set(other.tools)
+        if overlap:
+            raise ValueError(f"ToolSet.union collision on names: {sorted(overlap)}")
         return ToolSet(tools=MappingProxyType({**self.tools, **other.tools}))
 
     def names(self) -> tuple[str, ...]:
@@ -186,6 +202,11 @@ class Message:
     content: str
     name: str | None = None
     tool_call_id: str | None = None
+    # When set on an assistant message, this records the args of a tool call
+    # the assistant emitted. Adapters use this to reconstruct provider-specific
+    # tool_use / tool_calls blocks on subsequent turns, so providers see a
+    # well-formed assistant→tool→assistant alternation.
+    tool_call_args: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,4 +321,6 @@ def _default(o: Any) -> Any:
         from dataclasses import asdict
 
         return asdict(o)
-    raise TypeError(f"Cannot canonicalize {type(o).__name__}")
+    # Fallback: a sink getting a tool-returned ``bytes``/``Path``/``Decimal`` must
+    # never crash the run. Degrade to repr() so audit lines stay readable.
+    return repr(o)

@@ -20,6 +20,7 @@ from lynx.core.types import AuditEvent, canonical_json
 
 __all__ = [
     "Sink",
+    "callback_sink",
     "jsonl_sink",
     "multi_sink",
     "noop_sink",
@@ -69,7 +70,11 @@ def stdout_sink(*, stream: IO[str] | None = None) -> Sink:
 
 
 def jsonl_sink(handle: IO[str]) -> Sink:
-    """Write one canonical-JSON event per line. User owns the file handle."""
+    """Write one canonical-JSON event per line. User owns the file handle.
+
+    Flushes after every record so a crash mid-run does not lose buffered
+    events. If you need higher throughput, wrap your own buffered sink.
+    """
 
     async def sink(event: AuditEvent) -> None:
         record: dict[str, Any] = {
@@ -81,18 +86,36 @@ def jsonl_sink(handle: IO[str]) -> Sink:
             "body": dict(event.body),
         }
         handle.write(canonical_json(record) + "\n")
+        try:
+            handle.flush()
+        except (AttributeError, ValueError):
+            # In-memory handles (StringIO) may not need or support flush.
+            pass
 
     return sink
 
 
 def multi_sink(*sinks: Sink) -> Sink:
-    """Fan out to several sinks concurrently. Exceptions in one don't kill others."""
+    """Fan out to several sinks concurrently. Exceptions in one don't kill others.
+
+    Failures are reported to stderr so operators can see a sink that's
+    consistently broken instead of silently losing every event.
+    """
 
     async def sink(event: AuditEvent) -> None:
-        await asyncio.gather(
+        results = await asyncio.gather(
             *(s(event) for s in sinks),
             return_exceptions=True,
         )
+        for sub, outcome in zip(sinks, results, strict=True):
+            if isinstance(outcome, BaseException):
+                sink_name = getattr(sub, "__qualname__", repr(sub))
+                print(
+                    f"[lynx] sink {sink_name} failed on event "
+                    f"{event.kind!r} seq={event.seq}: "
+                    f"{type(outcome).__name__}: {outcome}",
+                    file=sys.stderr,
+                )
 
     return sink
 

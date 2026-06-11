@@ -7,6 +7,7 @@ The agent step loop with policy enforcement and streaming audit events.
 from __future__ import annotations
 
 import asyncio
+import sys
 import time
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
@@ -78,7 +79,7 @@ async def run_agent(
     cid = correlation_id or new_correlation_id()
     sinks_tuple: tuple[Sink, ...] = tuple(sinks)
 
-    started_wall = time.time()
+    started_monotonic = time.monotonic()
     seq_counter = 0
 
     async def emit(kind: str, body_payload: dict) -> int:
@@ -93,10 +94,21 @@ async def run_agent(
         )
         seq_counter += 1
         if sinks_tuple:
-            await asyncio.gather(
+            results = await asyncio.gather(
                 *(s(event) for s in sinks_tuple),
                 return_exceptions=True,
             )
+            for sink_obj, outcome in zip(sinks_tuple, results, strict=True):
+                if isinstance(outcome, BaseException):
+                    # A sink failed. Don't let it kill the run, but don't be
+                    # silent either — log to stderr so operators can see it.
+                    sink_name = getattr(sink_obj, "__qualname__", repr(sink_obj))
+                    print(
+                        f"[lynx] sink {sink_name} failed on event "
+                        f"{event.kind!r} seq={event.seq}: "
+                        f"{type(outcome).__name__}: {outcome}",
+                        file=sys.stderr,
+                    )
         return event.seq
 
     await emit("run.started", {"task": task, "principal_id": principal.id})
@@ -116,7 +128,7 @@ async def run_agent(
             )
         if (
             budget.duration_seconds is not None
-            and time.time() - started_wall >= budget.duration_seconds
+            and time.monotonic() - started_monotonic >= budget.duration_seconds
         ):
             await emit("run.failed", {"reason": "duration budget exhausted"})
             return RunResult(
@@ -149,6 +161,21 @@ async def run_agent(
 
         assert isinstance(action, ToolCall)
 
+        # Always record the assistant's tool-call attempt FIRST so adapters
+        # translating to provider-specific shapes (Anthropic tool_use blocks,
+        # OpenAI tool_calls) emit a well-formed assistant→tool alternation.
+        assistant_call_id = action.call_id or f"step_{step_seq}"
+        conversation = (
+            *conversation,
+            Message(
+                role="assistant",
+                content="",
+                name=action.tool,
+                tool_call_id=assistant_call_id,
+                tool_call_args=dict(action.args),
+            ),
+        )
+
         # ---- build the ActionRequest using tool's declared metadata
         try:
             tool_def = tools.get(action.tool)
@@ -164,7 +191,7 @@ async def run_agent(
                 Message(
                     role="tool",
                     content=f"[error] {denial_msg}",
-                    tool_call_id=action.call_id or str(step_seq),
+                    tool_call_id=assistant_call_id,
                     name=action.tool,
                 ),
             )
@@ -225,30 +252,44 @@ async def run_agent(
             )
 
         if result.ok:
+            completed_kind = (
+                "action.dry_run_completed"
+                if decision.verdict.value == "dry_run"
+                else "action.completed"
+            )
             await emit(
-                "action.completed",
+                completed_kind,
                 {"seq": step_seq, "duration_ms": result.duration_ms},
             )
+            tag = "[dry_run]" if decision.verdict.value == "dry_run" else "[ok]"
             conversation = (
                 *conversation,
                 Message(
                     role="tool",
-                    content=f"[ok] {result.value}",
-                    tool_call_id=action.call_id or str(step_seq),
+                    content=f"{tag} {result.value}",
+                    tool_call_id=assistant_call_id,
                     name=request.tool,
                 ),
             )
         else:
-            await emit(
-                "action.failed" if decision.verdict.value != "deny" else "action.denied",
-                {"seq": step_seq, "reason": result.error},
-            )
+            # Map verdict → audit event kind so downstream consumers can
+            # bucket denials separately from tool failures.
+            if decision.verdict.value == "deny":
+                fail_kind = "action.denied"
+                tag = "[denied]"
+            elif decision.verdict.value == "approve_required":
+                fail_kind = "action.denied"
+                tag = "[denied]"
+            else:
+                fail_kind = "action.failed"
+                tag = "[error]"
+            await emit(fail_kind, {"seq": step_seq, "reason": result.error})
             conversation = (
                 *conversation,
                 Message(
                     role="tool",
-                    content=f"[denied] {result.error}",
-                    tool_call_id=action.call_id or str(step_seq),
+                    content=f"{tag} {result.error}",
+                    tool_call_id=assistant_call_id,
                     name=request.tool,
                 ),
             )

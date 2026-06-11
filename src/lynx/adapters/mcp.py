@@ -1,93 +1,106 @@
-"""MCP (Model Context Protocol) universal adapter.
+"""MCP (Model Context Protocol) adapter — v2.
 
-Auto-discovers tools from an MCP server and registers them as Lynx
-@tool functions. Once registered, any agent can call them through the
-normal Lynx mediator + policy stack.
+Connects to an MCP server, discovers its tools, and returns them as a
+``ToolSet`` you can pass directly to ``run_agent`` (or union with your own
+tools). No global registration — the returned ToolSet is an immutable value.
 
-Requires `pip install lynx-agent[mcp]` (or `pip install mcp`).
+The MCP server runs as a child process for the lifetime of the session;
+``mcp_tools`` returns an async context manager so the session stays open while
+the ToolSet is in use. Closing the context manager terminates the server::
 
-Usage::
+    from lynx import run_agent
+    from lynx.adapters.mcp import mcp_tools
 
-    from lynx.adapters.mcp import register_mcp_server
-    from lynx import runtime
+    async with mcp_tools("python -m my_mcp_server") as mcp:
+        await run_agent(agent, "...", tools=mcp, policy=...)
 
-    # Connect to an MCP server (stdio, SSE, or HTTP) and register its tools.
-    await register_mcp_server("python -m my_mcp_server")
+Pass a list to bypass shell-style splitting::
 
-    # Now `my_tool_from_mcp` is callable like any other @tool.
+    async with mcp_tools(["python", "-m", "my_mcp_server", "--flag"]) as mcp:
+        ...
+
+Requires ``pip install lynx-agent[mcp]`` (or ``pip install mcp``).
 """
 
 from __future__ import annotations
 
-from lynx.core.mediator import RegisteredTool, get_registry
-from lynx.core.types import ToolMetadata
+import shlex
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from types import MappingProxyType
+from typing import Any
+
+from lynx.core.types import ToolDef, ToolMetadata, ToolSet
+
+__all__ = ["mcp_tools"]
 
 
-async def register_mcp_server(
+@asynccontextmanager
+async def mcp_tools(
     command: str | list[str],
     *,
     default_cost: str = "medium",
     default_reversible: bool = False,
     default_scope: tuple[str, ...] = ("mcp:tool",),
-) -> list[str]:
-    """Discover tools from an MCP server and register them with Lynx.
+) -> AsyncIterator[ToolSet]:
+    """Async context manager that yields a ``ToolSet`` of discovered MCP tools.
 
-    Returns the list of tool names registered. Each MCP tool's input schema
-    is reflected into the JSON schema returned to upstream agents.
+    The MCP session and its stdio child process stay alive for the lifetime
+    of the ``async with`` block. Exiting the block tears them down.
 
-    The default safety posture is conservative: tools default to
-    `reversible=False` and a `mcp:tool` scope, so policies must explicitly
-    allow them before they can run.
+    The default safety posture is conservative: ``reversible=False`` with a
+    ``mcp:tool`` scope, so operator policies must explicitly allow MCP tools
+    before they can run.
     """
     try:
         from mcp import ClientSession
         from mcp.client.stdio import StdioServerParameters, stdio_client
     except ImportError as exc:
         raise ImportError(
-            "register_mcp_server requires the 'mcp' package. Install with: pip install mcp"
+            "mcp_tools requires the 'mcp' package. Install with: pip install mcp"
         ) from exc
 
-    params = (
-        StdioServerParameters(command=command[0], args=command[1:])
-        if isinstance(command, list)
-        else StdioServerParameters(command=command)
-    )
+    if isinstance(command, list):
+        if not command:
+            raise ValueError("mcp_tools: command list cannot be empty")
+        params = StdioServerParameters(command=command[0], args=command[1:])
+    else:
+        parts = shlex.split(command)
+        if not parts:
+            raise ValueError("mcp_tools: command string cannot be empty")
+        params = StdioServerParameters(command=parts[0], args=parts[1:])
 
-    registered_names: list[str] = []
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
-            tools = await session.list_tools()
-            for tool in tools.tools:
-                name = tool.name
-                description = tool.description or f"MCP tool: {name}"
-                # tool.inputSchema is forwarded to upstream agents via
-                # _signature_to_json_schema fallback; not needed inline here.
+            listed = await session.list_tools()
 
-                async def _invoke(_session=session, _name=name, **kwargs):
-                    result = await _session.call_tool(_name, arguments=kwargs)
-                    return result.content
+            defs: dict[str, ToolDef] = {}
+            for t in listed.tools:
+                name = t.name
+                description = t.description or f"MCP tool: {name}"
 
-                def _meta_factory(_args, _scope=default_scope):
-                    return ToolMetadata(
-                        cost=default_cost,
+                def make_invoke(
+                    bound_name: str,
+                ) -> Any:
+                    async def _invoke(**kwargs: Any) -> Any:
+                        result = await session.call_tool(bound_name, arguments=kwargs)
+                        return result.content
+
+                    _invoke.__qualname__ = f"mcp_tool[{bound_name}]"
+                    return _invoke
+
+                defs[name] = ToolDef(
+                    name=name,
+                    description=description,
+                    fn=make_invoke(name),
+                    shadow_fn=None,
+                    metadata=ToolMetadata(
+                        cost=default_cost,  # type: ignore[arg-type]
                         reversible=default_reversible,
-                        scope=_scope,
+                        scope=default_scope,
                         has_shadow=False,
-                    )
-
-                get_registry().register(
-                    RegisteredTool(
-                        name=name,
-                        description=description,
-                        fn=_invoke,
-                        shadow_fn=None,
-                        metadata_factory=_meta_factory,
-                    )
+                    ),
                 )
-                registered_names.append(name)
 
-    return registered_names
-
-
-__all__ = ["register_mcp_server"]
+            yield ToolSet(tools=MappingProxyType(defs))

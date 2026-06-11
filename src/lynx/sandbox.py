@@ -1,28 +1,31 @@
-"""Sandbox-isolation modes for tool execution.
+"""Subprocess sandbox helper.
 
-A sandbox runs a `@tool(sandbox=...)` function in a contained environment.
-The kernel still mediates and audits; the sandbox just bounds the blast
-radius of the actual tool body.
+NOT a security boundary. The ``run_in_subprocess`` helper runs a tool body in
+a fresh Python interpreter with a stripped environment and best-effort POSIX
+resource limits. It is intended to bound the blast radius of *trusted but
+buggy* tools (runaway memory, runaway CPU, accidental writes to the wrong
+directory) — not to contain an adversary.
 
-Supported modes:
+What it actually provides:
 
-  - `"none"`        (default): in-process; no isolation. Fast, fine for trusted tools.
-  - `"subprocess"`: fork a child Python interpreter with a stripped env and
-                    optional ulimits. The tool function is shipped via pickle.
-  - `"container"`:  reserved for v0.8 — runs the tool inside a one-shot
-                    container with the workspace bind-mounted read-only by
-                    default. Implementation hook only in v0.1.
+  * Fresh Python interpreter (new heap, no shared in-process state)
+  * ``RLIMIT_CPU`` and ``RLIMIT_AS`` set best-effort (POSIX; no-op on Windows
+    and partially honoured on macOS for RLIMIT_AS)
+  * Working directory pinned to ``workspace`` if given
+  * Stripped ``os.environ`` (only ``env_allowlist`` keys passed through)
+  * Wall-clock timeout that kills + reaps the child process
 
-The sandbox mode is part of `ToolMetadata` and surfaced to policy via
-`declared.sandbox`, so policies can require sandboxing for specific scopes::
+What it does NOT provide:
 
-    rules:
-      - id: untrusted-must-sandbox
-        match:
-          declared.scope.contains: "net:egress"
-          declared.sandbox: "none"
-        decision: deny
-        reason: "Network tools must declare a sandbox"
+  * No filesystem isolation. The child can read/write the workspace dir and
+    any path the user can reach.
+  * No network isolation. The child can open arbitrary sockets.
+  * No syscall filtering (no seccomp, no namespaces, no chroot, no container).
+  * No protection against a malicious tool body — the tool function is shipped
+    via ``pickle`` and runs as the same user.
+
+For real isolation, run Lynx inside a container, a microVM, or use nsjail /
+firejail / bubblewrap around the whole process.
 """
 
 from __future__ import annotations
@@ -52,48 +55,53 @@ async def run_in_subprocess(
     timeout_seconds: float = 60.0,
     env_allowlist: tuple[str, ...] = ("PATH", "HOME", "USER", "LANG", "LC_ALL"),
 ) -> Any:
-    """Run `fn(**args)` in a fresh Python subprocess with limited resources.
+    """Run `fn(**args)` in a fresh Python subprocess with best-effort caps.
 
-    The function and args are pickled into a temp file; a small wrapper
-    script imports the function, applies ulimits, awaits the result, and
-    writes JSON back to stdout.
-
-    Sync-tool functions are wrapped in asyncio.run. The sandbox imposes:
-        * RLIMIT_CPU = cpu_seconds
-        * RLIMIT_AS  = max_memory_mb (best effort; Linux only)
-        * Working directory = workspace (if given)
-        * Stripped environment (only env_allowlist passed through)
+    See module docstring for a precise description of what this does and does
+    not protect against. Returns the value the coroutine returned, JSON-routed
+    via ``default=str`` (so non-JSON values may come back as their ``str()``).
     """
     if not asyncio.iscoroutinefunction(fn):
         raise SandboxError("subprocess sandbox supports async tools only")
 
     import os
 
+    try:
+        pickled = pickle.dumps({"fn": fn, "args": args})
+    except (pickle.PicklingError, AttributeError, TypeError) as exc:
+        # Local / lambda / closure-capturing functions are not pickleable.
+        # Surface a clear sandbox error rather than a raw PicklingError.
+        raise SandboxError(
+            f"cannot pickle tool function {getattr(fn, '__qualname__', fn)!r}: {exc}. "
+            "The subprocess sandbox requires a top-level async function."
+        ) from exc
+
     with tempfile.TemporaryDirectory() as tmp:
         payload_path = Path(tmp) / "payload.pkl"
         result_path = Path(tmp) / "result.json"
-        with payload_path.open("wb") as f:
-            pickle.dump({"fn": fn, "args": args}, f)
+        payload_path.write_bytes(pickled)
 
+        # Use repr() so the inner script's string literal is always escaped
+        # safely on every platform regardless of what the tmp path contains.
         wrapper = textwrap.dedent(
             f"""
             import asyncio, json, pickle, resource, sys
             try:
                 resource.setrlimit(resource.RLIMIT_CPU, ({cpu_seconds}, {cpu_seconds}))
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[lynx-sandbox] RLIMIT_CPU unsupported: {{exc}}", file=sys.stderr)
             try:
                 resource.setrlimit(
                     resource.RLIMIT_AS,
                     ({max_memory_mb * 1024 * 1024}, {max_memory_mb * 1024 * 1024}),
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[lynx-sandbox] RLIMIT_AS unsupported: {{exc}}", file=sys.stderr)
 
-            with open(r"{payload_path}", "rb") as f:
+            with open({str(payload_path)!r}, "rb") as f:
                 payload = pickle.load(f)
             value = asyncio.run(payload["fn"](**payload["args"]))
-            with open(r"{result_path}", "w") as f:
+            with open({str(result_path)!r}, "w") as f:
                 json.dump({{"ok": True, "value": value}}, f, default=str)
             """
         )
@@ -101,8 +109,13 @@ async def run_in_subprocess(
         script.write_text(wrapper)
 
         env = {k: v for k, v in os.environ.items() if k in env_allowlist}
-        # Propagate sys.path so pickled function references resolve.
-        env["PYTHONPATH"] = os.pathsep.join(sys.path)
+        # Propagate sys.path so pickled function references resolve, but drop
+        # empty entries — sys.path[0] is usually "" which would resolve
+        # relative to the child's cwd and silently shadow library modules.
+        path_entries = [p for p in sys.path if p and p != "."]
+        if path_entries:
+            env["PYTHONPATH"] = os.pathsep.join(path_entries)
+
         proc = await asyncio.create_subprocess_exec(
             sys.executable,
             str(script),
@@ -111,20 +124,30 @@ async def run_in_subprocess(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+        # Guarantee the child is killed + reaped on ANY exit path
+        # (timeout, cancellation, parser exception). Otherwise the
+        # subprocess plus its stdout/stderr pipes leak file descriptors.
         try:
-            _, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=timeout_seconds)
-        except TimeoutError as exc:
-            proc.kill()
-            raise SandboxError(f"sandbox timeout after {timeout_seconds}s") from exc
+            try:
+                _, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=timeout_seconds)
+            except TimeoutError as exc:
+                raise SandboxError(f"sandbox timeout after {timeout_seconds}s") from exc
 
-        if proc.returncode != 0:
-            stderr = stderr_b.decode()[-1000:]
-            raise SandboxError(f"sandbox exited {proc.returncode}: {stderr}")
+            if proc.returncode != 0:
+                stderr = stderr_b.decode(errors="replace")[-1000:]
+                raise SandboxError(f"sandbox exited {proc.returncode}: {stderr}")
 
-        try:
-            with result_path.open() as f:
-                data = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError) as exc:
-            raise SandboxError(f"sandbox produced no result: {exc}") from exc
+            try:
+                with result_path.open() as f:
+                    data = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError) as exc:
+                raise SandboxError(f"sandbox produced no result: {exc}") from exc
 
-        return data["value"]
+            return data["value"]
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+                try:
+                    await proc.wait()
+                except BaseException:
+                    pass

@@ -11,6 +11,10 @@ REQUIRES:
 
 RUN WITH:
     python examples/12_django_service.py runserver
+
+NOTE:
+    The script puts its parent directory on ``sys.path`` before calling
+    ``django.setup()`` so the digit-prefixed module name resolves cleanly.
 """
 
 from __future__ import annotations
@@ -19,6 +23,14 @@ import json
 import sys
 from pathlib import Path
 from typing import Any
+
+# Put `examples/` on the path so that the AppConfig's `name =
+# "examples.12_django_service"` import resolves regardless of cwd.
+_THIS = Path(__file__).resolve()
+_EXAMPLES_DIR = _THIS.parent
+_PROJECT_ROOT = _EXAMPLES_DIR.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 try:
     import django
@@ -29,7 +41,7 @@ try:
 except ImportError as exc:
     raise SystemExit("This example requires django: pip install django") from exc
 
-from lynx import (
+from lynx import (  # noqa: E402
     FinalAnswer,
     Message,
     ToolCall,
@@ -82,16 +94,25 @@ class LynxAppConfig(AppConfig):
     policy: Any
 
     def ready(self) -> None:
-        policy_path = Path(__file__).resolve().parent / "policies" / "refund.yaml"
+        policy_path = _EXAMPLES_DIR / "policies" / "refund.yaml"
         LynxAppConfig.tools = ToolSet.from_functions(get_customer, refund_customer)
         LynxAppConfig.policy = load_policy_file(policy_path)
 
 
 async def run_endpoint(request) -> JsonResponse:
-    body = json.loads(request.body or b"{}")
+    try:
+        body = json.loads(request.body or b"{}")
+    except json.JSONDecodeError as exc:
+        return JsonResponse({"error": f"invalid JSON: {exc}"}, status=400)
+    for required in ("customer_id", "amount_usd", "reason"):
+        if required not in body:
+            return JsonResponse({"error": f"missing field: {required}"}, status=400)
+
+    denials: list[dict[str, Any]] = []
 
     async def collect(ev):
-        return None
+        if ev.kind == "action.denied":
+            denials.append({"seq": ev.seq, "reason": ev.body.get("reason", "")})
 
     result = await run_agent(
         ScriptedRefund(body["customer_id"], float(body["amount_usd"]), body["reason"]),
@@ -101,14 +122,15 @@ async def run_endpoint(request) -> JsonResponse:
         sinks=(callback_sink(collect),),
         on_approval=auto_approve(approver="api"),
     )
-    return JsonResponse(
-        {
-            "correlation_id": result.correlation_id,
-            "final_answer": result.final_answer,
-            "error": result.error,
-            "steps_taken": result.steps_taken,
-        }
-    )
+    payload = {
+        "correlation_id": result.correlation_id,
+        "final_answer": result.final_answer,
+        "error": result.error,
+        "steps_taken": result.steps_taken,
+        "denials": denials,
+    }
+    status = 403 if denials else 200
+    return JsonResponse(payload, status=status)
 
 
 urlpatterns = [path("agent/run", run_endpoint)]
