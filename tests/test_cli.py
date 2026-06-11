@@ -9,11 +9,16 @@ from click.testing import CliRunner
 from lynx.cli.main import cli
 
 
-def test_version_shows_2_0() -> None:
+def test_version_shows_current_v2() -> None:
+    """The CLI reports the package's __version__; we don't pin a specific
+    minor here so the test doesn't lock in a release number."""
+    from lynx import __version__
+
     runner = CliRunner()
     res = runner.invoke(cli, ["--version"])
     assert res.exit_code == 0
-    assert "2.0" in res.output
+    assert __version__ in res.output
+    assert __version__.startswith("2.")
 
 
 def test_init_writes_policy_only(tmp_path) -> None:

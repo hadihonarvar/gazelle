@@ -5,6 +5,15 @@ All notable changes to Lynx will be documented here. Format follows [Keep a Chan
 ## [Unreleased]
 
 ### Added
+- (nothing yet)
+
+## [2.1.0] — 2026-06-11
+
+Audit followup release. Hardens the kernel, fixes ~50 bugs found in the
+post-2.0 audit, ships an integration cookbook, and adds 11 new examples
+so every public feature has a runnable demo.
+
+### Added
 - `PolicyCompileError` raised for malformed YAML, unknown operators (with typo suggestions), unknown predicate names, invalid `transform` blocks, malformed `between` / `in` operands, and ReDoS-guard rejections.
 - `Message.tool_call_args` field — the scheduler now records the assistant's tool-call shape so Anthropic / OpenAI adapters can re-emit a well-formed `assistant→tool` alternation on the next step.
 - `action.dry_run_completed` audit event kind, distinct from `action.completed`. Tool-side denials emit `action.denied` (was `action.failed`) so consumers can bucket denials separately.
@@ -142,7 +151,8 @@ Docs-only release. Aligned docs with v1.0 surface. See git history for details.
 
 First public release. v1 design preserved on PyPI for users needing durability + audit chain.
 
-[Unreleased]: https://github.com/hadihonarvar/lynx/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/hadihonarvar/lynx/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/hadihonarvar/lynx/releases/tag/v2.1.0
 [2.0.0]: https://github.com/hadihonarvar/lynx/releases/tag/v2.0.0
 [1.0.1]: https://github.com/hadihonarvar/lynx/releases/tag/v1.0.1
 [1.0.0]: https://github.com/hadihonarvar/lynx/releases/tag/v1.0.0
