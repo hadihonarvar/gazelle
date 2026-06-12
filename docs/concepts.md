@@ -107,6 +107,17 @@ async def my_sink(event: AuditEvent) -> None: ...
 
 Built-in: `stdout_sink`, `jsonl_sink`, `noop_sink`, `multi_sink`, `callback_sink`.
 
+## Handoff graph (optional)
+
+Sequential multi-node workflows where each node is one complete `run_agent` call with **its own policy, tools, and budget** — the edge between nodes is a permission boundary. Entirely optional: the kernel knows nothing about graphs.
+
+```python
+class Router(Protocol):
+    def __call__(self, outcome: NodeOutcome) -> str | None: ...   # next node, or None/"done"
+```
+
+`GraphNode` (agent + tools + policy + budget + on_approval), `NodeOutcome` (node, `RunResult`, **denials** — replay-stable, transitions), `GraphResult` (final result, full path, error for max-transitions/unknown-node/superseded). `compile_graph(yaml)` / `load_graph_file(path)` build a `GraphSpec` — a compiled edge table that *is* a Router; first matching edge wins; predicates: `status`, `answer_matches`/`error_matches` (ReDoS-guarded), `denials_gt`, `steps_gt`; `done` is the reserved terminal. `max_transitions` is always enforced. Context passing is explicit via `compose_task(original_task, outcome)`. With `store=`/`run_id=`, node runs journal under derived child run_ids and each routing decision journals as a `handoff` record — resume replays both. Graph-level events: `graph.started`, `graph.handoff`, `graph.exhausted`, `graph.superseded`, `graph.finished`.
+
 ## Executor
 
 A callable that runs one approved action. The seam where execution isolation attaches — policy decides *whether*, the executor decides *where and how*.

@@ -5,7 +5,8 @@ All notable changes to Lynx will be documented here. Format follows [Keep a Chan
 ## [Unreleased]
 
 ### Added
-- (nothing yet)
+- **Handoff graphs (optional)** — `lynx.graph`: sequential multi-agent workflows where the edge is a permission boundary. Each `GraphNode` is one complete `run_agent` call with its own policy/tools/budget — role boundaries are enforced by policy, not prompts (an overreaching orchestrator model gets denied, then hands off). Routing is a pure `Router` callable over `NodeOutcome` (status, final answer, steps, **denial counts** — a signal only possible because policy is first-class), or a YAML edge table via `compile_graph`/`load_graph_file` (ReDoS-guarded regexes, compile-time validation with `GraphCompileError`, `done` terminal, first-match-wins). `max_transitions` is always enforced — unbounded recursion is impossible by construction; cycles like fixer ⇄ reviewer are fine. Context passing is explicit (`compose_task`). Durability composes: node runs journal under derived child run_ids, routing decisions journal as `handoff` records, resume replays both, racing graph workers resolve to one winner. New graph-level events: `graph.started`, `graph.handoff`, `graph.exhausted`, `graph.superseded`, `graph.finished`. The kernel knows nothing about graphs — this is sugar over a loop of `run_agent` calls you could write yourself.
+- Example 27 (`27_handoff_graph.py`): triage (read-only) → fixer (write) ⇄ reviewer (read-only) until approved, with the triage model's own write attempt denied at hop 0.
 
 ## [2.3.0] — 2026-06-11
 

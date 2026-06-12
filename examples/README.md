@@ -1,8 +1,8 @@
 # examples/
 
-A learning path of 26 examples. Each is **self-contained** and starts with a plain-language SCENARIO explaining the problem it solves.
+A learning path of 27 examples. Each is **self-contained** and starts with a plain-language SCENARIO explaining the problem it solves.
 
-Read 01–12 in order for the core narrative; 13–26 cover every remaining feature for full coverage.
+Read 01–12 in order for the core narrative; 13–27 cover every remaining feature for full coverage.
 
 ```
 SIMPLE          01 → 02 → 03         "see the system working"
@@ -10,15 +10,16 @@ MORE COMPLEX    04 → 05 → 06         "approvals, real LLMs, streaming audit"
 ADVANCED        07 → 08 → 09         "production patterns: rules, transforms, web service"
 COMPLETE        10                   "the full thing — one realistic DevOps scenario"
 INTEGRATIONS    11 (Flask) 12 (Django)   "drop Lynx into your existing web framework"
-FULL COVERAGE   13 → 26              "every feature: python rules, transform ops,
+FULL COVERAGE   13 → 27              "every feature: python rules, transform ops,
                                        custom sinks, cross-process approval,
                                        shadow helpers, sandbox, hot-swap,
                                        MCP, LangGraph, CrewAI, error model,
                                        durable crash-resume, token budgets,
-                                       executor seam (BYO sandbox)"
+                                       executor seam (BYO sandbox),
+                                       handoff graphs"
 ```
 
-## The 26 examples
+## The 27 examples
 
 | # | File | Verdict shown | Problem in one line |
 |---|------|--------------|---------------------|
@@ -48,6 +49,7 @@ FULL COVERAGE   13 → 26              "every feature: python rules, transform o
 | 24 | [`24_durable_resume.py`](24_durable_resume.py) | `RunStore` durability | "Crash mid-run, retry with the same run_id — the model isn't re-called and the customer isn't double-charged." |
 | 25 | [`25_token_budget.py`](25_token_budget.py) | `Usage` + token `Budget` caps | "Meter every step, price it in YOUR sink at YOUR rates, and stop a runaway loop with `Budget(output_tokens=...)`." |
 | 26 | [`26_executor_seam.py`](26_executor_seam.py) | `Executor` + `route_executor` | "Policy decides WHETHER; the executor decides WHERE — inline, subprocess, or your container, routed per tool, failing closed." |
+| 27 | [`27_handoff_graph.py`](27_handoff_graph.py) | `run_graph` + `compile_graph` | "Triage (read-only) → fixer (write) ⇄ reviewer: the edge is a permission boundary, enforced not prompted." |
 
 ## How to run any of them
 
@@ -55,7 +57,7 @@ FULL COVERAGE   13 → 26              "every feature: python rules, transform o
 # Set up once
 pip install -e ".[dev]"
 
-# Examples 01-04, 06-08, 10, 13-19, 23-26 — no API key, no extras needed
+# Examples 01-04, 06-08, 10, 13-19, 23-27 — no API key, no extras needed
 python examples/01_hello_allow.py
 python examples/02_block_dangerous.py
 python examples/03_preview_writes.py
@@ -75,6 +77,7 @@ python examples/23_compile_errors.py
 python examples/24_durable_resume.py
 python examples/25_token_budget.py
 python examples/26_executor_seam.py
+python examples/27_handoff_graph.py
 
 # Example 05 — needs a real LLM API key
 export ANTHROPIC_API_KEY=sk-ant-...     # or OPENAI_API_KEY=sk-...
@@ -142,6 +145,7 @@ There is no `lynx ps` / `lynx trace` / `lynx audit` — v2 holds no past runs.
 | Durability / `RunStore` | Crash-resume, idempotent re-runs, `superseded` losers, `replay()` | 24 |
 | Token metering / `Usage` + caps | `step.usage` events, cost sink with user rates, `Budget(output_tokens=...)` | 25 |
 | Executor seam / `route_executor` | Per-tool execution routing, fail-closed isolation, BYO sandbox | 26 |
+| Handoff graphs / `run_graph` | Per-node policy boundaries, denial-count routing, bounded cycles | 27 |
 | Web service integration | FastAPI / Flask / Django | 09 / 11 / 12 |
 | Real LLM | ClaudeAgent / OpenAIAgent (proper `async with` lifetime) | 05 |
 
