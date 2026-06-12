@@ -4,6 +4,18 @@ All notable changes to Lynx will be documented here. Format follows [Keep a Chan
 
 ## [Unreleased]
 
+### Added
+- (nothing yet)
+
+## [2.4.0] — 2026-06-12
+
+The orchestration release — and the last pillar from the June research.
+Handoff graphs make the edge between agents a permission boundary; timeouts
+close the two hangs the kernel couldn't escape; budgets now follow one rule
+(defined caps enforce, undefined means no restriction); and the subprocess
+sandbox works for script-defined tools. 30 runnable examples, zero new
+dependencies.
+
 ### Changed — ⚠ behavior change
 - **Budgets default to UNLIMITED.** `Budget()` no longer caps anything (previously `steps` defaulted to 50, and `run_agent`'s default budget was `Budget(steps=50, duration_seconds=600)`). The rule is now: *what you define is enforced; what you don't define is no restriction.* Long-running tasks no longer die mysteriously at step 50 — but an unbudgeted agent that never answers runs forever, so set at least `steps` or `duration_seconds` in production. If you relied on the implicit 50-step / 10-minute cap, pass it explicitly.
 
