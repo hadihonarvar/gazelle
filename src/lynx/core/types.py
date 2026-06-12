@@ -105,6 +105,12 @@ class Usage:
 class Budget:
     """Hard caps enforced by the scheduler, all checked between steps.
 
+    Every field defaults to ``None`` = **unlimited**: only the caps you set
+    are enforced; an undefined cap is no restriction at all. ``Budget()``
+    constrains nothing — which also means an agent loop that never returns
+    a ``FinalAnswer`` runs forever. In production, set at least ``steps``
+    or ``duration_seconds``.
+
     ``duration_seconds`` uses a monotonic clock so wall-clock jumps do not
     exhaust it; a single hung tool call is not interrupted (use a tool-level
     timeout for that).
@@ -123,7 +129,7 @@ class Budget:
     """
 
     duration_seconds: int | None = None
-    steps: int | None = 50
+    steps: int | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
     tokens: int | None = None  # combined input + output

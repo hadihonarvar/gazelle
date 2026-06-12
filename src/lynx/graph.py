@@ -102,7 +102,7 @@ class GraphNode:
     agent: Agent
     tools: ToolSet
     policy: PolicyBundle
-    budget: Budget = field(default_factory=lambda: Budget(steps=50, duration_seconds=600))
+    budget: Budget = field(default_factory=Budget)  # unlimited unless you cap it
     on_approval: ApprovalHandler | None = None
 
 

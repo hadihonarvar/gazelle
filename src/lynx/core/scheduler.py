@@ -82,7 +82,7 @@ async def run_agent(
     policy: PolicyBundle,
     sinks: Sequence[Sink] = (),
     on_approval: ApprovalHandler | None = None,
-    budget: Budget = Budget(steps=50, duration_seconds=600),
+    budget: Budget = Budget(),  # unlimited — only caps you set are enforced
     principal: Principal = Principal(kind="user", id="anonymous"),
     environment: str = "dev",
     workspace: str = ".",
@@ -100,7 +100,10 @@ async def run_agent(
         policy:       Compiled PolicyBundle (use compile_policy / load_policy_file).
         sinks:        Iterable of Sink callables. Each event is fanned out.
         on_approval:  Sync handler for APPROVE_REQUIRED. Defaults to auto-deny.
-        budget:       Hard caps on steps / duration.
+        budget:       Hard caps on steps / duration / tokens / step timeout.
+                      Defaults to NO caps: only what you define is enforced —
+                      an unbudgeted agent that never answers runs forever, so
+                      set at least steps or duration_seconds in production.
         principal:    Who the agent is acting on behalf of.
         environment:  e.g. "dev" / "staging" / "prod" — policy can match on this.
         workspace:    Filesystem context the agent works in.

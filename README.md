@@ -36,7 +36,7 @@ result = await run_agent(
     environment="prod",          # policy can match on context.environment
     # principal=Principal(kind="user", id="hadi"),  # optional
     # workspace=".",                                 # optional
-    # budget=Budget(steps=50, duration_seconds=600), # optional
+    # budget=Budget(steps=50, duration_seconds=600), # default: NO caps — define to enforce
     # correlation_id=None,                           # auto-generated if None
 )
 # result: { correlation_id, bundle_id, final_answer, error, steps_taken }

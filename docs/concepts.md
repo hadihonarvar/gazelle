@@ -193,7 +193,7 @@ Principal(kind="user" | "service" | "agent", id="...", name="...")
 
 ## Budget
 
-Frozen. Hard caps the kernel enforces between steps. All fields optional except `steps`, which defaults to 50:
+Frozen. Hard caps the kernel enforces between steps. **Every field defaults to `None` = unlimited** — only the caps you define are enforced; what you don't define is no restriction at all:
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -224,7 +224,7 @@ class Usage:
 
 The scheduler accumulates these into `RunResult.usage` (lifetime totals — replayed steps included), emits a `step.usage` event per live metered step, and enforces `Budget` token caps. Field names align with OpenTelemetry GenAI conventions (`gen_ai.usage.input_tokens` / `output_tokens`). The kernel never converts tokens to money — that's your sink, your rates.
 
-`run_agent`'s default for its `budget=` parameter is `Budget(steps=50, duration_seconds=600)` — a 50-step / 10-minute cap. Override per call to widen or tighten.
+`run_agent`'s default is `Budget()` — **no caps at all**. An unbudgeted agent that never returns a `FinalAnswer` runs forever; in production set at least `steps` or `duration_seconds`.
 
 > v2.0 removed the `usd` and `tokens` fields that v1 carried: neither was enforced by the kernel. Token/spend accounting belongs in a sink (or an adapter wrapping the LLM call), not in the policy boundary.
 

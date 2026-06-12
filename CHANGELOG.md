@@ -4,6 +4,9 @@ All notable changes to Lynx will be documented here. Format follows [Keep a Chan
 
 ## [Unreleased]
 
+### Changed — ⚠ behavior change
+- **Budgets default to UNLIMITED.** `Budget()` no longer caps anything (previously `steps` defaulted to 50, and `run_agent`'s default budget was `Budget(steps=50, duration_seconds=600)`). The rule is now: *what you define is enforced; what you don't define is no restriction.* Long-running tasks no longer die mysteriously at step 50 — but an unbudgeted agent that never answers runs forever, so set at least `steps` or `duration_seconds` in production. If you relied on the implicit 50-step / 10-minute cap, pass it explicitly.
+
 ### Added (timeouts)
 - `Budget.step_timeout_seconds` — wraps each `agent.step()` model call in `asyncio.wait_for`, so a hung provider connection fails the run with `error="agent.step timed out after Ns"` instead of hanging forever. Durability-safe: nothing journals until the step returns, so a timed-out step leaves no record and resume re-asks the model cleanly.
 - `inline_executor(timeout_seconds=...)` — bounds each in-process tool call; on expiry the action fails with a structured timeout error and the run continues (the agent sees `[error] ...` and adapts). Cancels cooperative tools only — tight CPU loops need `subprocess_executor`, which kills the child.
