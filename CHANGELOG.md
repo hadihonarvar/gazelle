@@ -5,6 +5,15 @@ All notable changes to Lynx will be documented here. Format follows [Keep a Chan
 ## [Unreleased]
 
 ### Added
+- (nothing yet)
+
+## [2.2.0] — 2026-06-11
+
+Durability release. The kernel can now journal runs to user-owned storage for
+crash-resume, idempotent retries, and no-double-side-effects — while shipping
+zero storage and zero new dependencies itself.
+
+### Added
 - **Durability (opt-in)** — `run_agent(..., store=, run_id=)` journals the run to a user-implemented `RunStore` (Lynx ships **no storage**; the protocol is two methods over your Redis/Postgres/Dynamo/dict). Re-invoking with the same `run_id` resumes: journaled model outputs replay without re-calling the model, journaled action results replay without re-executing the action, and a completed run returns the same `RunResult` forever.
 - `StepRecord`, `RunStore`, `DuplicateRecord`, `idempotency_key()`, `step_record_to_json()` / `step_record_from_json()` — the journal vocabulary, exported from `lynx`.
 - **Write-ahead intents + the unique-append concurrency model**: every action journals an `action.intent` before executing; `append` must atomically reject a duplicate `(run_id, seq)` with `DuplicateRecord`, so two racing workers resolve to one winner — the loser returns `error="superseded: ..."` having executed nothing. No leases, no TTLs.
