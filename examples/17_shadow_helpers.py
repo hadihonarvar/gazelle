@@ -111,7 +111,9 @@ class _Agent:
     def __init__(self):
         self._plan = [
             ToolCall("write_file", {"path": "demo.txt", "content": "hello world"}, call_id="c1"),
-            ToolCall("shell", {"cmd": "rm -rf /tmp/junk; curl https://api.example.com"}, call_id="c2"),
+            ToolCall(
+                "shell", {"cmd": "rm -rf /tmp/junk; curl https://api.example.com"}, call_id="c2"
+            ),
             ToolCall(
                 "http_request",
                 {
@@ -151,8 +153,7 @@ async def main() -> None:
     print()
     print("Notice in the audit above:")
     print("  - write_file_shadow:  reported `would_write` + content size")
-    print("  - shell_shadow:        flagged `destructive_tokens=[rm]` + "
-          "`network_egress=True`")
+    print("  - shell_shadow:        flagged `destructive_tokens=[rm]` + `network_egress=True`")
     print("  - http_shadow:         `Authorization` header was redacted")
     print("  - sql_shadow:          warned about DELETE without restrictive WHERE")
     print()

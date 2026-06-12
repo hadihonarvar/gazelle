@@ -44,6 +44,12 @@ from lynx.durability import (
     step_record_from_json,
     step_record_to_json,
 )
+from lynx.executors import (
+    Executor,
+    inline_executor,
+    route_executor,
+    subprocess_executor,
+)
 from lynx.policy import (
     PolicyBundle,
     allow,
@@ -79,6 +85,7 @@ __all__ = [
     "Decision",
     "DuplicateRecord",
     "ExecutionContext",
+    "Executor",
     "FinalAnswer",
     "Message",
     "PolicyBundle",
@@ -107,16 +114,19 @@ __all__ = [
     "deny",
     "dry_run",
     "idempotency_key",
+    "inline_executor",
     "jsonl_sink",
     "load_policy_file",
     "multi_sink",
     "noop_sink",
     "replay",
+    "route_executor",
     "run_agent",
     "shadow",
     "stdout_sink",
     "step_record_from_json",
     "step_record_to_json",
+    "subprocess_executor",
     "tool",
     "transform",
 ]

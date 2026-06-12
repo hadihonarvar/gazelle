@@ -45,6 +45,7 @@ from lynx.durability import (
 if TYPE_CHECKING:
     from lynx.approvals import ApprovalHandler
     from lynx.durability import RunStore
+    from lynx.executors import Executor
     from lynx.sdk import Agent
     from lynx.sinks import Sink
 
@@ -88,6 +89,7 @@ async def run_agent(
     correlation_id: str | None = None,
     store: RunStore | None = None,
     run_id: str | None = None,
+    executor: Executor | None = None,
 ) -> RunResult:
     """Run an agent through one task. Stateless unless you pass a store.
 
@@ -116,6 +118,12 @@ async def run_agent(
         run_id:       Stable, non-empty identifier for the journaled run.
                       Required with ``store``; pick something your
                       retry/queue layer keeps stable across attempts.
+        executor:     Where approved actions execute. Default: in-process
+                      (identical to pre-seam behavior). Pass
+                      ``subprocess_executor()``, ``route_executor({...})``,
+                      or your own Docker/microVM ``Executor`` — Lynx defines
+                      the seam; the isolation behind it is yours. Dry-runs
+                      always call the shadow in-process.
 
     Returns:
         ``RunResult`` with final_answer, error, steps_taken, correlation_id,
@@ -157,6 +165,10 @@ async def run_agent(
         )
 
     on_approval = on_approval or auto_deny("no on_approval handler configured")
+    if executor is None:
+        from lynx.executors import inline_executor  # local import to avoid cycle
+
+        executor = inline_executor()
     cid = correlation_id or run_id or new_correlation_id()
     sinks_tuple: tuple[Sink, ...] = tuple(sinks)
 
@@ -553,7 +565,7 @@ async def run_agent(
                     {"seq": step_seq, "approvers": list(decision.approvers)},
                 )
 
-            result = await mediate(request, decision, tools, on_approval)
+            result = await mediate(request, decision, tools, on_approval, executor)
 
             # ---- one ladder decides both the conversation tag and the audit
             # event kind, so they can never drift apart.

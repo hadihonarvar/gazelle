@@ -8,6 +8,7 @@ No global registration. Users explicitly bundle decorated functions into a
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import inspect
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
@@ -23,6 +24,7 @@ def tool(
     reversible: bool = True,
     scope: tuple[str, ...] = (),
     blast_radius_hint: int | None = None,
+    isolation: str | None = None,
     name: str | None = None,
     description: str | None = None,
 ) -> Callable[[Callable[..., Awaitable[Any]]], Callable[..., Awaitable[Any]]]:
@@ -67,6 +69,7 @@ def tool(
                 scope=tuple(scope),
                 blast_radius_hint=blast_radius_hint,
                 has_shadow=False,
+                isolation=isolation,
             ),
         )
 
@@ -83,18 +86,12 @@ def tool(
             # Replace the meta with a new one (still frozen) that points at
             # the shadow function and sets has_shadow=True.
             current: ToolDef = fn.__lynx_meta__
-            new_meta = ToolDef(
-                name=current.name,
-                description=current.description,
-                fn=current.fn,
+            # dataclasses.replace keeps every other metadata field intact —
+            # rebuilding field-by-field silently drops newly added fields.
+            new_meta = dataclasses.replace(
+                current,
                 shadow_fn=shadow_fn,
-                metadata=ToolMetadata(
-                    cost=current.metadata.cost,
-                    reversible=current.metadata.reversible,
-                    scope=current.metadata.scope,
-                    blast_radius_hint=current.metadata.blast_radius_hint,
-                    has_shadow=True,
-                ),
+                metadata=dataclasses.replace(current.metadata, has_shadow=True),
             )
             fn.__lynx_meta__ = new_meta
             return shadow_fn

@@ -47,10 +47,7 @@ try:
 
     from lynx.adapters.crewai_adapter import CrewAIAgent
 except ImportError as exc:
-    sys.exit(
-        "CrewAI not importable. Install with: pip install lynx-agent[crewai]\n"
-        f"({exc})"
-    )
+    sys.exit(f"CrewAI not importable. Install with: pip install lynx-agent[crewai]\n({exc})")
 
 
 POLICY = "version: 1\ndefaults: { on_no_match: allow }\nrules: []"

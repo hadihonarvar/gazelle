@@ -53,10 +53,7 @@ from lynx import (
 try:
     from lynx.adapters.mcp import mcp_tools
 except ImportError as exc:
-    sys.exit(
-        "MCP adapter not importable. Install with: pip install lynx-agent[mcp]\n"
-        f"({exc})"
-    )
+    sys.exit(f"MCP adapter not importable. Install with: pip install lynx-agent[mcp]\n({exc})")
 
 
 # A local Lynx tool you'd union with the MCP server's tools.
@@ -104,7 +101,9 @@ async def main() -> None:
         print()
         print("Examples:")
         print("  # The official filesystem MCP server:")
-        print("  python examples/20_mcp_tools.py 'npx -y @modelcontextprotocol/server-filesystem .'")
+        print(
+            "  python examples/20_mcp_tools.py 'npx -y @modelcontextprotocol/server-filesystem .'"
+        )
         print()
         print("  # Or any other stdio MCP server you have installed:")
         print("  python examples/20_mcp_tools.py 'python -m my_mcp_server'")

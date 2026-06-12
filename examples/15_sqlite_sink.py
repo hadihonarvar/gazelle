@@ -162,9 +162,7 @@ async def main() -> None:
         print(f"Run error:    {result.error}")
         print()
 
-        rows = conn.execute(
-            "SELECT seq, kind FROM events ORDER BY seq"
-        ).fetchall()
+        rows = conn.execute("SELECT seq, kind FROM events ORDER BY seq").fetchall()
         print(f"Rows in {DB_PATH}: {len(rows)}")
         for seq, kind in rows:
             print(f"  seq={seq:>2}  kind={kind}")
