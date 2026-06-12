@@ -289,6 +289,52 @@ The pattern is always: a 5–10 line `async def my_sink_or_handler(...)` that ta
 
 ---
 
+## Executors — bring your own isolation
+
+The executor seam is one async callable: `(request, tool) -> ActionResult`.
+Lynx ships `inline_executor` / `subprocess_executor` / `route_executor`;
+real isolation is yours. Two recipes:
+
+### Docker (~20 lines, `aiodocker` or subprocess + docker CLI)
+
+```python
+import asyncio, json
+from lynx import ActionRequest, ActionResult, ToolDef
+
+IMAGE = "python:3.12-slim"  # bake your tools module into your own image
+
+async def docker_executor(request: ActionRequest, tool: ToolDef) -> ActionResult:
+    payload = json.dumps({"tool": tool.name, "args": dict(request.args)})
+    proc = await asyncio.create_subprocess_exec(
+        "docker", "run", "--rm", "--network=none", "--memory=512m",
+        "--cpus=1", "--read-only", "-i", IMAGE,
+        "python", "-m", "my_tools.runner",          # reads payload on stdin,
+        stdin=asyncio.subprocess.PIPE,              # prints JSON result
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    out, err = await asyncio.wait_for(proc.communicate(payload.encode()), timeout=120)
+    if proc.returncode != 0:
+        return ActionResult(ok=False, error=f"container exited {proc.returncode}: {err.decode()[-500:]}")
+    return ActionResult(ok=True, value=json.loads(out))
+```
+
+`--network=none` is the point: the tool cannot exfiltrate even if the model
+was prompt-injected. Wire it per-tool:
+
+```python
+executor = route_executor({None: inline_executor(), "container": docker_executor})
+# @tool(isolation="container") tools run in Docker; everything else inline.
+```
+
+### E2B / hosted sandboxes
+
+Same shape — call the provider's SDK inside the executor and return an
+`ActionResult`. The executor owns the sandbox lifecycle (create per call, or
+hold a warm one in the closure and `aclose()` it when your app shuts down —
+Lynx never closes your resources).
+
+---
+
 ## Durability — RunStore recipes
 
 Lynx ships **no storage**. Pass `run_agent(..., store=..., run_id=...)` a

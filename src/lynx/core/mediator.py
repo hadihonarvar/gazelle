@@ -1,14 +1,15 @@
 """Action Mediator (PEP) — v2.
 
-Pure async function. Takes a request, decision, the toolset, and an approval
-handler. Returns an ``ActionResult``. No globals. No store. No broker.
+Pure async function. Takes a request, decision, the toolset, an approval
+handler, and (optionally) an executor. Returns an ``ActionResult``. No
+globals. No store. No broker.
 """
 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import time
-import traceback
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
@@ -23,6 +24,7 @@ from lynx.core.types import (
 
 if TYPE_CHECKING:
     from lynx.approvals import ApprovalHandler
+    from lynx.executors import Executor
 
 __all__ = ["mediate"]
 
@@ -37,22 +39,31 @@ async def mediate(
     decision: Decision,
     tools: ToolSet,
     on_approval: ApprovalHandler,
+    executor: Executor | None = None,
 ) -> ActionResult:
     """Dispatch one action under the verdict's rules.
 
     Behavior by verdict:
-      * ALLOW             → call the real tool with request.args
+      * ALLOW             → execute the real tool with request.args
       * DENY              → return a failed ActionResult with the deny reason
       * DRY_RUN           → call the shadow function; return preview
       * APPROVE_REQUIRED  → call on_approval(...) with the rule's timeout;
                             on grant → execute as ALLOW; on deny / timeout /
                             handler exception → return a failed ActionResult.
-      * TRANSFORM         → call the real tool with decision.transform_args
+      * TRANSFORM         → execute the real tool with decision.transform_args
                             (which must be a Mapping)
+
+    Real execution (allow / transform / approval-granted) goes through the
+    ``executor`` — the seam where the user's isolation attaches. ``None``
+    means in-process (identical to pre-seam behavior). The executor receives
+    the *effective* args: for TRANSFORM, the request is rebuilt with the
+    transformed args before it reaches the executor. Dry-runs always call
+    the shadow in-process — shadows are side-effect-free by contract.
 
     On a tool raising an exception, the result has ok=False with a structured
     error string. The kernel never crashes due to a misbehaving tool, a
-    misbehaving approval handler, or a malformed transform.
+    misbehaving approval handler, a misbehaving executor, or a malformed
+    transform.
     """
     if decision.verdict == Verdict.DENY:
         return ActionResult(
@@ -89,7 +100,7 @@ async def mediate(
                 ),
             )
         # Granted — fall through and execute as if ALLOW
-        return await _execute_real(request, tools)
+        return await _execute_real(request, tools, executor)
 
     if decision.verdict == Verdict.DRY_RUN:
         return await _execute_shadow(request, tools)
@@ -105,10 +116,12 @@ async def mediate(
                     "Refusing to fall through to original args."
                 ),
             )
-        return await _execute_real(request, tools, override_args=decision.transform_args)
+        # The executor sees the EFFECTIVE args — what will actually run.
+        effective = dataclasses.replace(request, args=dict(decision.transform_args))
+        return await _execute_real(effective, tools, executor)
 
     # ALLOW
-    return await _execute_real(request, tools)
+    return await _execute_real(request, tools, executor)
 
 
 # ---------------------------------------------------------------------------
@@ -119,27 +132,33 @@ async def mediate(
 async def _execute_real(
     request: ActionRequest,
     tools: ToolSet,
-    *,
-    override_args: Mapping[str, str] | Mapping[str, object] | None = None,
+    executor: Executor | None,
 ) -> ActionResult:
     tool = tools.get(request.tool)
-    args: Mapping[str, object] = override_args if override_args is not None else dict(request.args)
-    started = time.perf_counter()
+    if executor is None:
+        # Avoid a module-level import cycle: executors.py imports core.types.
+        from lynx.executors import inline_executor
+
+        executor = inline_executor()
     try:
-        value = await tool.fn(**args)
-        return ActionResult(
-            ok=True,
-            value=value,
-            duration_ms=int((time.perf_counter() - started) * 1000),
-        )
+        result = await executor(request, tool)
     except asyncio.CancelledError:
         raise
     except Exception as exc:
+        # A misbehaving executor must not crash the run.
         return ActionResult(
             ok=False,
-            error=f"{type(exc).__name__}: {exc}\n{traceback.format_exc()[-500:]}",
-            duration_ms=int((time.perf_counter() - started) * 1000),
+            error=f"executor raised {type(exc).__name__}: {exc}",
         )
+    if not isinstance(result, ActionResult):
+        return ActionResult(
+            ok=False,
+            error=(
+                f"executor returned {type(result).__name__}, not ActionResult "
+                f"(tool {request.tool!r})"
+            ),
+        )
+    return result
 
 
 async def _execute_shadow(request: ActionRequest, tools: ToolSet) -> ActionResult:

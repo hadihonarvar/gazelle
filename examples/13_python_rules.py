@@ -60,9 +60,7 @@ async def read_file(path: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def block_paths_outside_workspace(
-    req: ActionRequest, ctx: ExecutionContext
-) -> Decision | None:
+def block_paths_outside_workspace(req: ActionRequest, ctx: ExecutionContext) -> Decision | None:
     """Deny any read_file call whose path resolves outside ctx.workspace."""
     if req.tool != "read_file":
         return None  # not our concern

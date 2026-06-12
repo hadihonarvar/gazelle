@@ -146,6 +146,10 @@ class ToolMetadata:
     scope: tuple[str, ...]
     blast_radius_hint: int | None = None
     has_shadow: bool = False
+    # Routing hint for route_executor: which executor should run this tool
+    # ("subprocess", "container", ... — your vocabulary). None = default
+    # route. A hint, not a guarantee — enforcement is the executor's job.
+    isolation: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

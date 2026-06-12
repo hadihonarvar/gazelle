@@ -36,7 +36,7 @@ import pickle
 import sys
 import tempfile
 import textwrap
-from collections.abc import Callable, Coroutine
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -46,7 +46,7 @@ class SandboxError(RuntimeError):
 
 
 async def run_in_subprocess(
-    fn: Callable[..., Coroutine[Any, Any, Any]],
+    fn: Callable[..., Awaitable[Any]],
     args: dict[str, Any],
     *,
     cpu_seconds: int = 30,

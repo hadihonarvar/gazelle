@@ -53,6 +53,7 @@ result = await run_agent(
 - **Hot-swappable policy.** Pass a different `PolicyBundle` on the next `run_agent` call — the bundle is an immutable value; the kernel holds nothing between calls. (Mid-run reload is not supported; build a new bundle and use it on the next run.)
 - **Durable runs, no double side effects** *(opt-in)*. Pass a `RunStore` you implement over your own storage and a stable `run_id`: a crashed run resumes at the first incomplete step — the model is not re-called for completed steps (no re-burned tokens) and journaled actions are not re-executed (no double charges). Two racing workers resolve to one winner; the loser exits `superseded` before executing anything.
 - **Token metering and caps.** Adapters report per-step input/output token counts; the kernel streams them as `step.usage` events, totals them on `RunResult.usage`, and enforces `Budget(tokens=…, input_tokens=…, output_tokens=…)` between steps. The kernel counts and enforces counts — it never converts tokens to money; multiply by your own rates in a sink.
+- **Pluggable execution (the executor seam).** Every approved action flows through one `Executor` — in-process by default, a subprocess with rlimits, or *your* Docker/gVisor/E2B wrapper (one async callable). Route per-tool via `@tool(isolation="container")` + `route_executor({...})`, failing closed when a requested isolation has no route. Lynx defines the seam; the security boundary is whatever you plug in.
 
 ## What v2 does NOT do
 
@@ -450,6 +451,43 @@ to a human:
 
 Inspect any journal with `replay(records)` (pure function) or `lynx trace
 records.jsonl` (for file-backed stores).
+
+## Execution isolation — the executor seam
+
+Policy decides *whether* an action runs; the executor decides *where and
+how*. By default approved tools run in-process — identical to every prior
+release. Pass an `Executor` and all real execution (allow / transform /
+approval-granted) flows through it instead:
+
+```python
+from lynx import inline_executor, route_executor, subprocess_executor
+
+@tool(reversible=False, scope=("compute:exec",), isolation="container")
+async def run_code(snippet: str) -> str: ...
+
+result = await run_agent(
+    agent, task, tools=tools, policy=policy,
+    executor=route_executor({
+        None:        inline_executor(),        # default route
+        "subprocess": subprocess_executor(),   # rlimits — crash protection
+        "container":  my_docker_executor,      # YOURS (~20 lines, see cookbook)
+    }),
+)
+```
+
+A custom executor is one async callable — `(request, tool) -> ActionResult`
+— so Docker, gVisor, Firecracker, E2B, or Modal plug in without Lynx
+shipping any of them as dependencies. Routing **fails closed**: a tool that
+declares `isolation="microvm"` when no microvm route exists gets a failed
+action, never a silent fallback to the host. Dry-runs bypass the seam
+(shadows are side-effect-free by contract), and a raising executor fails
+the action — never the run.
+
+Honesty, as always: Python has no reliable in-language sandbox, and
+`subprocess_executor()` is **crash/runaway protection, not a security
+boundary** (see [SECURITY.md](SECURITY.md)). Lynx is the chokepoint where
+isolation attaches; the boundary itself is whatever you put behind the
+seam — the same stance as "you bring the database."
 
 ## Token usage & budgets
 

@@ -107,6 +107,17 @@ async def my_sink(event: AuditEvent) -> None: ...
 
 Built-in: `stdout_sink`, `jsonl_sink`, `noop_sink`, `multi_sink`, `callback_sink`.
 
+## Executor
+
+A callable that runs one approved action. The seam where execution isolation attaches — policy decides *whether*, the executor decides *where and how*.
+
+```python
+class Executor(Protocol):
+    async def __call__(self, request: ActionRequest, tool: ToolDef) -> ActionResult: ...
+```
+
+Built-in: `inline_executor()` (default — in-process, identical to pre-seam behavior), `subprocess_executor()` (fresh interpreter + best-effort rlimits; crash protection, NOT a security boundary), `route_executor({...})` (per-tool routing via `@tool(isolation=...)`, failing closed on unrouted hints). The mediator routes allow / transform / approval-granted execution through the executor; TRANSFORM rebuilds the request so the executor sees the *effective* args; dry-runs always call the shadow in-process. A raising executor fails the action, never the run. Real isolation (Docker / gVisor / E2B) is user-implemented — one async callable.
+
 ## ApprovalHandler
 
 A callable taking one `ApprovalRequest` and returning an `ApprovalDecision`. Called synchronously by the kernel when policy returns `approve_required`.
