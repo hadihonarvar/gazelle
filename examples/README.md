@@ -1,8 +1,8 @@
 # examples/
 
-A learning path of 27 examples. Each is **self-contained** and starts with a plain-language SCENARIO explaining the problem it solves.
+A learning path of 30 examples. Each is **self-contained** and starts with a plain-language SCENARIO explaining the problem it solves.
 
-Read 01–12 in order for the core narrative; 13–27 cover every remaining feature for full coverage.
+Read 01–12 in order for the core narrative; 13–30 cover every remaining feature for full coverage.
 
 ```
 SIMPLE          01 → 02 → 03         "see the system working"
@@ -10,16 +10,17 @@ MORE COMPLEX    04 → 05 → 06         "approvals, real LLMs, streaming audit"
 ADVANCED        07 → 08 → 09         "production patterns: rules, transforms, web service"
 COMPLETE        10                   "the full thing — one realistic DevOps scenario"
 INTEGRATIONS    11 (Flask) 12 (Django)   "drop Lynx into your existing web framework"
-FULL COVERAGE   13 → 27              "every feature: python rules, transform ops,
+FULL COVERAGE   13 → 30              "every feature: python rules, transform ops,
                                        custom sinks, cross-process approval,
                                        shadow helpers, sandbox, hot-swap,
                                        MCP, LangGraph, CrewAI, error model,
                                        durable crash-resume, token budgets,
                                        executor seam (BYO sandbox),
-                                       handoff graphs"
+                                       handoff graphs, memory gating,
+                                       cost attribution, full-stack capstone"
 ```
 
-## The 27 examples
+## The 30 examples
 
 | # | File | Verdict shown | Problem in one line |
 |---|------|--------------|---------------------|
@@ -50,6 +51,9 @@ FULL COVERAGE   13 → 27              "every feature: python rules, transform o
 | 25 | [`25_token_budget.py`](25_token_budget.py) | `Usage` + token `Budget` caps | "Meter every step, price it in YOUR sink at YOUR rates, and stop a runaway loop with `Budget(output_tokens=...)`." |
 | 26 | [`26_executor_seam.py`](26_executor_seam.py) | `Executor` + `route_executor` | "Policy decides WHETHER; the executor decides WHERE — inline, subprocess, or your container, routed per tool, failing closed." |
 | 27 | [`27_handoff_graph.py`](27_handoff_graph.py) | `run_graph` + `compile_graph` | "Triage (read-only) → fixer (write) ⇄ reviewer: the edge is a permission boundary, enforced not prompted." |
+| 28 | [`28_full_stack_pipeline.py`](28_full_stack_pipeline.py) | **all pillars composed** | "One refund pipeline: graph + policy + approval + executor routing + metering + durable replay — six features, one chokepoint." |
+| 29 | [`29_memory_gating.py`](29_memory_gating.py) | memory ops through policy | "Gate remember/recall/forget: poisoning denied, recalls tenant-scoped, deletions previewed + human-approved (OWASP ASI06)." |
+| 30 | [`30_cost_attribution.py`](30_cost_attribution.py) | FinOps attribution sink | "Per-customer × per-model chargeback from run.started + step.usage — your rates, your join, no proxy." |
 
 ## How to run any of them
 
@@ -57,7 +61,7 @@ FULL COVERAGE   13 → 27              "every feature: python rules, transform o
 # Set up once
 pip install -e ".[dev]"
 
-# Examples 01-04, 06-08, 10, 13-19, 23-27 — no API key, no extras needed
+# Examples 01-04, 06-08, 10, 13-19, 23-30 — no API key, no extras needed
 python examples/01_hello_allow.py
 python examples/02_block_dangerous.py
 python examples/03_preview_writes.py
@@ -78,6 +82,9 @@ python examples/24_durable_resume.py
 python examples/25_token_budget.py
 python examples/26_executor_seam.py
 python examples/27_handoff_graph.py
+python examples/28_full_stack_pipeline.py
+python examples/29_memory_gating.py
+python examples/30_cost_attribution.py
 
 # Example 05 — needs a real LLM API key
 export ANTHROPIC_API_KEY=sk-ant-...     # or OPENAI_API_KEY=sk-...
@@ -147,6 +154,9 @@ There is no `lynx ps` / `lynx trace` / `lynx audit` — v2 holds no past runs.
 | Token metering / `Usage` + caps | `step.usage` events, cost sink with user rates, `Budget(output_tokens=...)` | 25 |
 | Executor seam / `route_executor` | Per-tool execution routing, fail-closed isolation, BYO sandbox | 26 |
 | Handoff graphs / `run_graph` | Per-node policy boundaries, denial-count routing, Python + YAML routers, durable workflow resume | 27 |
+| Full-stack composition | Graph + policy + approvals + executors + metering + durability in ONE run | 28 |
+| Memory gating (ASI06) | remember/recall/forget through policy — all five verdicts on one surface | 29 |
+| Cost attribution / FinOps | Per-customer chargeback sink joining run.started + step.usage | 30 |
 | Web service integration | FastAPI / Flask / Django | 09 / 11 / 12 |
 | Real LLM | ClaudeAgent / OpenAIAgent (proper `async with` lifetime) | 05 |
 
