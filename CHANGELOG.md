@@ -7,6 +7,14 @@ All notable changes to Lynx will be documented here. Format follows [Keep a Chan
 ### Added
 - (nothing yet)
 
+## [2.4.1] — 2026-06-12
+
+Packaging/docs patch — no code changes from 2.4.0.
+
+### Fixed
+- The v2.4.0 sdist shipped its CHANGELOG with the release's entries still under `[Unreleased]` (the release tooling's sectioning step failed but the tag raced ahead). This release ships the correctly sectioned CHANGELOG.
+- Added a release-hygiene test: CI fails if `__version__` has no matching `## [X.Y.Z]` CHANGELOG section, so this class of mistake cannot recur silently.
+
 ## [2.4.0] — 2026-06-12
 
 The orchestration release — and the last pillar from the June research.
