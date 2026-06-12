@@ -5,6 +5,17 @@ All notable changes to Lynx will be documented here. Format follows [Keep a Chan
 ## [Unreleased]
 
 ### Added
+- (nothing yet)
+
+## [2.3.0] — 2026-06-11
+
+Bring your own sandbox, watch every token. Approved actions now execute
+through a pluggable seam (inline / subprocess / your Docker-gVisor-E2B
+wrapper, routed per tool, failing closed), and adapters meter token usage
+that the kernel streams, totals, and hard-caps — while money never enters
+the kernel. Zero new dependencies, zero shipped sandboxes, zero price tables.
+
+### Added
 - **The executor seam** — every approved action (allow / transform / approval-granted) now flows through an `Executor`: one async callable `(request, tool) -> ActionResult`. Default is `inline_executor()` — bit-for-bit the pre-seam in-process behavior. `subprocess_executor()` repackages the rlimits sandbox (crash/runaway protection, explicitly NOT a security boundary); `route_executor({...})` picks an executor per tool via the new `@tool(isolation="...")` / `ToolMetadata.isolation` hint and **fails closed** when a declared isolation has no route. TRANSFORM verdicts rebuild the request so executors see the *effective* args; dry-runs bypass the seam (shadows are side-effect-free by contract); a raising executor fails the action, never the run. Real isolation (Docker / gVisor / E2B) is user-implemented — cookbook recipes included.
 - Example 26 (`26_executor_seam.py`): three tools, three execution destinations, including the fail-closed unrouted case.
 - **Token metering and budgets** — adapters (`ClaudeAgent`, `OpenAIAgent`) now attach a `Usage` record (input/output/cache token counts + model, OTel GenAI-aligned field names) to every step; the scheduler emits `step.usage` events with per-step counts and running totals, reports lifetime totals on `RunResult.usage` and in the `run.succeeded` body, and enforces new `Budget` caps: `input_tokens`, `output_tokens`, `tokens` (combined) — checked between steps exactly like `steps`. The kernel counts and enforces counts; it never converts tokens to money — multiply by your own rates in a sink (no price tables shipped, ever).
